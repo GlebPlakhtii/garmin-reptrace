@@ -5,15 +5,15 @@ import {renderMuscleMap,muscleChange,flexMusclePath} from '../../src/reptrace/we
 const set=(exercise,extra={})=>({exercise,date:'2026-10-23',sessionId:'a',weight:80,reps:10,volume:800,source:'garmin',...extra});
 const group=(summary,name)=>summary.groups.find(g=>g.name===name);
 
-test('visible selection follows muscle lobes while seamless click regions remain combined',()=>{
+test('fixed selection borders follow the clipping boundary while seamless hit regions remain combined',()=>{
  const html=renderMuscleMap({summary:muscleWeekSummary([set('Squat')],'2026-10-19'),weeks:['2026-10-19'],selected:'Core',includeSecondary:true,asOf:'2026-10-24'});
  for(const [side,name] of [['front','Core'],['front','Quads'],['back','Back']]){
   const svg=html.match(new RegExp(`<svg[^>]*data-body-key="body-work-${side}"[\\s\\S]*?<\\/svg>`))[0];
   const art=svg.split(`data-body-muscle="${name}"`)[1].split('data-body-muscle=')[0];
-  const shapes=[...art.matchAll(/<path class="muscle-surface"[^>]* d="([^"]+)"/g)].map(match=>match[1]);
+  const shapes=[...art.matchAll(/<path class="muscle-boundary-shape" d="([^"]+)"/g)].map(match=>match[1]);
   const control=svg.match(new RegExp(`<g id="map-${side}-${name}"[\\s\\S]*?<\\/g>`))[0];
-  const outlines=[...control.matchAll(/<path [^>]* d="([^"]+)"[^>]*class="muscle-group-area"/g)].map(match=>match[1]);
-  assert.deepEqual(outlines,shapes,`${side} ${name} highlight must not create a second silhouette`);
+  const outlines=[...control.matchAll(/<path d="([^"]+)"[^>]*class="muscle-group-area"/g)].map(match=>match[1]);
+  assert.deepEqual(outlines,shapes,`${side} ${name} selection border must match the fixed clip boundary`);
   assert.equal((control.match(/class="muscle-group-hit"/g)||[]).length,2,'seams still belong to the same hit region');
  }
 });
@@ -177,4 +177,19 @@ test('muscle flex rounds the belly while preserving tips and curve topology',()=
  assert.deepEqual(hitPaths(normal),hitPaths(selected),'selection does not move click targets');
  const chest=html=>html.split('data-body-muscle="Chest"')[1].split('data-body-muscle=')[0].match(/class="muscle-surface"[^>]* d="([^"]+)"/)[1];
  assert.notEqual(chest(normal),chest(selected),'selection changes the actual muscle outline');
+});
+
+test('strong muscle expansion is contained by unchanged per-lobe boundaries',()=>{
+ const render=selected=>renderMuscleMap({summary:muscleWeekSummary([],'2026-10-19'),weeks:['2026-10-19'],selected,includeSecondary:true,asOf:'2026-10-24'});
+ const normal=render('all'),selected=render('Chest');
+ const boundaries=html=>[...html.matchAll(/<path class="muscle-boundary-shape" d="([^"]+)"/g)].map(match=>match[1]);
+ const outlines=html=>[...html.matchAll(/<path d="([^"]+)"[^>]*class="muscle-group-area"/g)].map(match=>match[1]);
+ assert.deepEqual(boundaries(normal),boundaries(selected));
+ assert.deepEqual(outlines(normal),outlines(selected),'the selection border never expands');
+ for(const html of [normal,selected]){
+  assert.equal((html.match(/class="muscle-boundary" clip-path="url\(#[^)]+-boundary\)"/g)||[]).length,(html.match(/class="body-muscle-piece"/g)||[]).length,'every animated muscle sits inside a fixed clip');
+ }
+ const shape=selected.split('data-body-muscle="Chest"')[1].match(/data-muscle-rest="([^"]+)" data-muscle-flexed="([^"]+)"/);
+ const width=path=>{const xs=path.match(/-?\d+(?:\.\d+)?/g).map(Number).filter((_,i)=>i%2===0);return Math.max(...xs)-Math.min(...xs);};
+ assert.ok(width(shape[2])>width(shape[1])*1.25,'the deformation is visibly stronger before clipping');
 });
