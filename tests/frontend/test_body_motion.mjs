@@ -120,14 +120,14 @@ test('reduced motion, detached artwork and route changes cancel pulses',()=>{
   motion.update({querySelectorAll:()=>[]},{route:'#overview'});
   f.muscles[0].isConnected=true;
   motion.update(f.root,{route:'#volume'});
-  assert.equal(f.animations.length,4,'returning to unchanged data does not replay appearance');
+  assert.equal(f.animations.length,8,'returning to the page replays appearance');
   f.muscles[0].dataset.bodyState='primary|12|0';
   motion.update(f.root,{route:'#volume'});
-  assert.equal(f.animations.length,6,'new data still animates after returning');
+  assert.equal(f.animations.length,10,'new data still animates after returning');
   motion.finish();
 });
 
-test('identical replacement DOM and returning to the tab do not replay appearance',()=>{
+test('unchanged redraws stay quiet but every return to the page replays appearance',()=>{
  const old=fixture(),fresh=fixture(),motion=createBodyMotion();
  motion.update(old.root,{route:'#volume'});
  old.muscles.forEach(node=>node.isConnected=false);
@@ -136,9 +136,14 @@ test('identical replacement DOM and returning to the tab do not replay appearanc
  assert.ok(old.animations.every(animation=>animation.cancelled));
  motion.update({querySelectorAll:()=>[]},{route:'#exercises'});
  motion.update(fresh.root,{route:'#volume'});
- assert.equal(fresh.animations.length,0,'tab switch alone stays still');
+ assert.equal(fresh.animations.length,4,'second page visit replays appearance');
+ motion.update(fresh.root,{route:'#volume'});
+ assert.equal(fresh.animations.length,4,'same-page redraw remains quiet');
+ motion.update({querySelectorAll:()=>[]},{route:'#exercises'});
+ motion.update(fresh.root,{route:'#volume'});
+ assert.equal(fresh.animations.length,8,'third page visit also replays appearance');
  fresh.figure.dataset.bodyContext='2026-10-12|0';
  motion.update(fresh.root,{route:'#volume'});
- assert.equal(fresh.animations.length,4,'changed week still reveals updated muscles');
+ assert.equal(fresh.animations.length,12,'changed week still reveals updated muscles');
  motion.finish();
 });

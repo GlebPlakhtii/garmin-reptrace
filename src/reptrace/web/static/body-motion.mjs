@@ -42,8 +42,8 @@ export function createBodyMotion() {
     const routeChanged = route !== previousRoute;
     if (routeChanged) { finish(); previousRoute = route; hovered = null; }
     if (reduced) finish();
-    // Keep the last displayed data when the map is unmounted, so returning
-    // to the tab or replacing DOM with identical data does not replay appearance.
+    // Keep data snapshots to suppress unchanged redraws. Entering the page
+    // explicitly replays appearance, including second and subsequent visits.
     const next = new Map(previous), updates = [], selections = [];
     artwork = [];
     for (const figure of root.querySelectorAll('.body-map-svg')) {
@@ -55,7 +55,7 @@ export function createBodyMotion() {
         const state = {context, value: node.dataset.bodyState, selected: node.dataset.bodySelected === 'true'};
         const before = previous.get(key);
         next.set(key, state);
-        if (!before || before.context !== context || before.value !== state.value) {
+        if (routeChanged || !before || before.context !== context || before.value !== state.value) {
           updates.push({node, delay: Math.min(index * 18, 110)});
         } else if (!routeChanged && state.selected && !before.selected) selections.push(node);
       });
@@ -66,7 +66,7 @@ export function createBodyMotion() {
     for (const {node, delay} of updates) {
       // Keep the original reveal duration/stagger, overlapping the smooth growth
       // instead of starting a second animation stage after appearance finishes.
-      // Only groups whose displayed data changed disappear and reappear.
+      // Replay on page entry, or when this group's displayed data changes.
       for (const piece of node.querySelectorAll('.body-muscle-piece')) play(piece, 'entry', [
         {clipPath: 'circle(0% at 50% 50%) fill-box'},
         {clipPath: 'circle(75% at 50% 50%) fill-box'},
