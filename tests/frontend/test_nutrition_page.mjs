@@ -21,7 +21,7 @@ test('nutrition page totals the selected day and escapes food names',()=>{
   assert.doesNotMatch(context.html,/Older/);
   assert.match(context.html,/P 3\.9 · C 81 · F 1\.2 g/);
   assert.match(context.html,/Food and Garmin calorie burn/);
-  assert.match(context.html,/2,160 kcal/);
+  assert.match(context.html,/2,160 <small>kcal/);
   assert.match(context.html,/72\.5 kg/);
   assert.match(context.html,/data-action="food-delete"/);
   vm.runInContext("state.foodDeleteId='123e4567-e89b-12d3-a456-426614174000';this.confirmHtml=nutritionPage();",context);
@@ -69,4 +69,36 @@ test('nutrition defaults to local today and isolates macros from historical rang
   assert.match(context.emptyHtml,/Missing intake is not zero intake/);
   assert.match(context.emptyHtml,/No entries to show/);
   assert.doesNotMatch(context.emptyHtml,/Yesterday meal|Local today/);
+});
+
+function comparison(entries,reading={}) {
+  const context={...model,document:{querySelector:()=>({})},window:{},setTimeout,clearTimeout,entries,reading};
+  vm.createContext(context);
+  vm.runInContext(source.slice(source.indexOf('\n')+1,source.indexOf("document.addEventListener('click'"))+`\nthis.html=nutritionComparison('2026-10-23',entries,reading);`,context);
+  return context.html;
+}
+
+test('daily calorie comparison shares a scale and preserves zero readings',()=>{
+  const html=comparison([{calories:1200},{calories:600}],{totalCalories:2400,activeCalories:600,restingCalories:1800,bodyWeightKg:72.5});
+  assert.match(html,/data-point-value="1800" style="width:75%"/);
+  assert.match(html,/data-point-value="2400" style="width:100%"/);
+  assert.match(html,/2 approved entries/);
+  assert.match(html,/Active calories<\/dt><dd>600 kcal/);
+  assert.match(html,/Resting calories<\/dt><dd>1,800 kcal/);
+  const zero=comparison([{calories:0}],{totalCalories:0,activeCalories:0,restingCalories:0});
+  assert.equal((zero.match(/data-point-value="0" style="width:0%"/g)||[]).length,2);
+  assert.doesNotMatch(zero,/Not recorded|is-missing|NaN|Infinity/);
+});
+
+test('missing intake and partial Garmin readings never become zero or a daily total',()=>{
+  const html=comparison([],{activeCalories:480,bodyWeightKg:78});
+  assert.equal((html.match(/class="calorie-track is-missing"/g)||[]).length,2);
+  assert.match(html,/No food logged/);
+  assert.match(html,/Waiting for a complete daily burn reading/);
+  assert.match(html,/Active calories<\/dt><dd>480 kcal/);
+  assert.match(html,/Resting calories<\/dt><dd>—/);
+  assert.doesNotMatch(html,/data-point-value=|NaN|Infinity/);
+  const foodOnly=comparison([{calories:450}]);
+  assert.match(foodOnly,/data-point-value="450" style="width:100%"/);
+  assert.match(foodOnly,/No Garmin calorie reading/);
 });
