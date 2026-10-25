@@ -1,4 +1,4 @@
-import {estimatedStrengthHistory, recordedVolumeSets, exerciseMuscles, compareExerciseStack, muscleColor, exerciseColor, isAssistedExercise, adjustedVolumeSets, exerciseVolumeRule, present, sumKnown, exerciseSummaries, filterData, weeklyWorkouts, chartPoints, csvForSets, csvForRecovery, MUSCLE_GROUPS, DEFAULT_MUSCLES, matchingRepHistory, volumeByWeek, weeklyVolumeHistory, weekStart, plateauSignals, compareWorkouts, recoveryComparison, goalProgress, presetRange, chartDateRange, timeAxisDates, muscleMapWeeks, muscleWeekSummary, muscleWeekComparison} from './model.mjs'; import {renderMuscleMap} from './muscle-map.mjs';
+import {estimatedStrengthHistory, recordedVolumeSets, exerciseMuscles, compareExerciseStack, muscleColor, exerciseColor, isAssistedExercise, adjustedVolumeSets, exerciseVolumeRule, present, sumKnown, exerciseSummaries, filterData, weeklyWorkouts, chartPoints, csvForSets, csvForRecovery, MUSCLE_GROUPS, DEFAULT_MUSCLES, matchingRepHistory, volumeByWeek, weeklyVolumeHistory, weekStart, plateauSignals, compareWorkouts, recoveryComparison, goalProgress, presetRange, chartDateRange, timeAxisDates, muscleMapWeeks, muscleWeekSummary, muscleWeekComparison} from './model.mjs'; import {renderMuscleMap} from './muscle-map.mjs'; import {recoveryPage as renderOperationHistory,recoveryReview} from './recovery.mjs';
 
 const $ = selector => document.querySelector(selector);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -44,9 +44,11 @@ const icons = {
 };
 const icon = (name, extra = '') => `<svg class="icon ${extra}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || icons.activity}</svg>`;
 const state = {data:null, page:'overview', range:'30', from:'', to:'', source:'all', selected:'all', muscleGroup:'all', search:'', metric:'weight', exerciseVolumeMode:readExerciseVolumeMode(), limit:24, workoutSearch:'', recordSort:'count', recoveryLimit:14, refreshError:false, repTarget:5, plateauWindow:4, insightExercise:'all', recoveryMetric:'sleepHours', recoveryThreshold:7, volumeMode:'muscle', volumeMetric:'volume', volumeGroup:{muscle:'all',exercise:'all'}, volumeWeek:'', mapWeek:'', mapWeekLimit:4, mapMuscle:'all', mapSecondary:true, mapCompare:1, volumeCards:12, volumeLimit:100, planType:'upper1', compareLeft:'', compareRight:'', draft:null, foodDeleteId:'', nutritionDate:''};
-const pages = {overview:'Overview', nutrition:'Nutrition', sync:'Garmin sync', next:'Next session', exercises:'Exercises', workouts:'Workouts', records:'Personal records', recovery:'Recovery', insights:'Insights', volume:'Weekly volume', compare:'Compare workouts', logging:'Log & edit', goals:'Goals',garmin:'Garmin workouts',preferences:'Preferences'};
+const pages = {operations:'Operation recovery',overview:'Overview', nutrition:'Nutrition', sync:'Garmin sync', next:'Next session', exercises:'Exercises', workouts:'Workouts', records:'Personal records', recovery:'Recovery', insights:'Insights', volume:'Weekly volume', compare:'Compare workouts', logging:'Log & edit', goals:'Goals',garmin:'Garmin workouts',preferences:'Preferences'};
 let toastTimer;
 let loadSequence = 0;
+let operationSequence = 0;
+let operationReviewSequence = 0;
 
 function today() {
   const parts = new Intl.DateTimeFormat('en-CA', {timeZone:state.data?.timezone || 'Europe/Kyiv', year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
@@ -95,7 +97,7 @@ function badge(source) {
 }
 function nav() {
   const primary=['overview','exercises','workouts','volume','recovery','nutrition','garmin','insights'];
-  const groups=[['Training',['next','records','compare','goals']],['Management',['logging','sync','preferences']]];
+  const groups=[['Training',['next','records','compare','goals']],['Management',['logging','sync','operations','preferences']]];
   const link=(key,extra='')=>`<a href="#${key}" aria-label="${pages[key]}" title="${pages[key]}" class="topnav-link ${extra} ${key===state.page?'active':''}" ${key===state.page?'aria-current="page"':''}>${icon(key)}<span>${pages[key]}</span></a>`;
   const moreActive=!primary.includes(state.page);
   $('#navigation').innerHTML=`<div class="topnav-primary">${primary.map(key=>link(key)).join('')}<details class="topnav-more" id="more-navigation"><summary class="topnav-more-toggle ${moreActive?'active':''}" aria-label="More pages">${icon('menu')}<span>More</span>${icon('chevron','topnav-chevron')}</summary><div class="topnav-menu"><div class="topnav-menu-groups">${groups.map(([title,keys])=>`<div class="topnav-group" role="group" aria-label="${title}"><div class="topnav-group-label">${title}</div>${keys.map(key=>link(key,'topnav-menu-link')).join('')}</div>`).join('')}</div><div class="topnav-menu-footer"><div class="connection"><span class="status-dot"></span>${state.refreshError?'Connection unavailable':state.data?'Connected to your history':'Your training history'}</div></div></div></details></div>`;
@@ -244,7 +246,7 @@ function setsTable(exercise, compact = false) {
   if (!exercise) return '';
   const rows = [...exercise.rows].sort((a,b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time) || (a.number||0)-(b.number||0));
   const limit = compact ? 6 : state.limit;
-  return `<section class="panel sets-panel"><div class="table-heading"><div><h2>${compact ? 'Latest sets' : 'Set history'}</h2><p>Every recorded set, with its original source.</p></div>${compact ? '<a href="#exercises" class="text-link" data-action="all-sets">All sets '+icon('arrow')+'</a>' : `<span class="count-chip">${exercise.count} sets</span>`}</div><div class="table-scroll"><table><thead><tr><th>Workout date</th>${exercise.all?'<th>Exercise</th>':''}<th>Set</th><th>Load</th><th>Reps</th><th>${exerciseVolumeLabel()} <span class="th-unit">kg·reps</span></th><th>Source</th><th><span class="sr-only">Open workout</span></th></tr></thead><tbody>${rows.slice(0,limit).map(s => `<tr><td><button class="table-date" data-session="${escape(s.sessionId)}">${date(s.date,true)}</button>${s.note ? `<span class="data-note" title="${escape(s.note)}">Needs context</span>` : ''}</td>${exercise.all?`<td><button class="record-exercise" data-exercise="${escape(s.exercise)}">${exerciseLabel(s.exercise)}</button></td>`:''}<td class="muted">${number(s.number)}</td><td class="weight-cell">${loadLabel(s.exercise,s.weight)}</td><td>${number(s.reps)}</td><td class="muted">${number(s.volume,1)}</td><td>${badge(s.source)}</td><td><button class="row-arrow" data-session="${escape(s.sessionId)}" aria-label="Open workout on ${escape(date(s.date,true))}">${icon('arrow')}</button></td></tr>`).join('')}</tbody></table></div>${!compact && rows.length > limit ? `<button class="load-more" data-action="more-sets">Show more sets <span>${Math.min(limit,rows.length)} of ${rows.length}</span></button>` : ''}</section>`;
+  return `<section class="panel sets-panel"><div class="table-heading"><div><h2>${compact ? 'Latest sets' : 'Set history'}</h2><p>Every recorded set, with its original source.</p></div>${compact ? '<a href="#exercises" class="text-link" data-action="all-sets">All sets '+icon('arrow')+'</a>' : `<span class="count-chip">${exercise.count} sets</span>`}</div><div class="table-scroll"><table><thead><tr><th>Workout date</th>${exercise.all?'<th>Exercise</th>':''}<th>Set</th><th>Load</th><th>Reps</th><th>${exerciseVolumeLabel()} <span class="th-unit">kg·reps</span></th><th>Source</th><th><span class="sr-only">Open workout</span></th></tr></thead><tbody>${rows.slice(0,limit).map(s => `<tr><td><button class="table-date" data-session="${escape(s.sessionId)}">${date(s.date,true)}</button>${s.note ? `<span class="data-note" title="${escape(s.note)}">Needs context</span>` : ''}</td>${exercise.all?`<td><button class="record-exercise" data-exercise="${escape(s.exercise)}">${exerciseLabel(s.exercise)}</button></td>`:''}<td class="muted">${number(s.number)}</td><td class="weight-cell">${loadLabel(s.exercise,s.weight)}</td><td class="reps-cell">${number(s.reps)}</td><td class="volume-cell">${number(s.volume,1)}</td><td>${badge(s.source)}</td><td><button class="row-arrow" data-session="${escape(s.sessionId)}" aria-label="Open workout on ${escape(date(s.date,true))}">${icon('arrow')}</button></td></tr>`).join('')}</tbody></table></div>${!compact && rows.length > limit ? `<button class="load-more" data-action="more-sets">Show more sets <span>${Math.min(limit,rows.length)} of ${rows.length}</span></button>` : ''}</section>`;
 }
 function weeklyPanel(view) {
   const weeks = weeklyWorkouts(view.workouts,today());
@@ -655,9 +657,57 @@ function nextSessionPage() {
   return heading+`<div class="plan-types" role="group" aria-label="Choose workout type">${plans.map(p=>`<button class="panel plan-type ${p.type===plan.type?'selected':''}" data-plan-type="${p.type}" aria-pressed="${p.type===plan.type}"><strong>${escape(p.name)}</strong><span>Last: ${date(p.baselineDate,true)}</span><small>${p.exercises.length} exercises · ${p.evidenceCount} named sessions</small></button>`).join('')}</div><section class="panel plan-intro"><div><span class="eyebrow">PROPOSAL · ${escape(plan.name.toUpperCase())}</span><h2>${escape(plan.name)} — next targets</h2><p>${escape(plan.notice)}</p><p class="muted">Uses full history. Leg Day 1 / 2 are treated as Lower 1 / 2. Generic “Strength” workouts are not assigned a type; future sessions are ignored.</p></div><div class="plan-downloads">${Array.from({length:plan.imagePages},(_,i)=>`<a class="button button-dark" href="/api/plan.png?type=${plan.type}&page=${i}" download="form-${plan.type}-${i+1}.png">${icon('download')} Download image${plan.imagePages>1?' '+(i+1):''}</a>`).join('')}${plan.baselineId?`<button class="text-link" data-session="${escape(plan.baselineId)}">Open baseline workout ${icon('arrow')}</button>`:''}</div></section>${latest?`<div class="plan-recovery"><span>Today’s context · ${date(latest.date,true)}</span><span>Sleep <strong>${number(latest.sleepHours,1)} h</strong></span><span>HRV <strong>${number(latest.hrv)} ms</strong></span><span>RHR <strong>${number(latest.restingHR)} bpm</strong></span><small>Context only; targets are not scaled by watch readings.</small></div>`:''}<section class="panel feature-panel"><div class="table-heading"><div><h2>Set-by-set proposal</h2><p>Build reps to the ceiling, then increase eligible loads and reset reps. BW means bodyweight only; missing measurements remain blank.</p></div></div><div class="table-scroll"><table class="plan-table"><thead><tr><th>Exercise</th><th>Last session · ${date(plan.baselineDate)}</th><th>Proposed next session</th><th>Why this target?</th></tr></thead><tbody>${plan.exercises.map(e=>`<tr><td><button class="record-exercise" data-view-exercise="${escape(e.name)}">${exerciseLabel(e.name)}</button><span class="signal ${['progress','weight_progress'].includes(e.status)?'progressing':e.status==='review'?'watch':'insufficient'}">${names[e.status]}</span></td><td>${proposedSets(e.previous,e.name)}</td><td class="proposed-targets">${proposedSets(e.proposed,e.name)}</td><td><p>${escape(e.reason)}</p><details class="plan-evidence"><summary>Recent ${escape(plan.name)} records</summary>${e.history.map(h=>`<div><button class="table-date" data-session="${escape(h.id)}">${date(h.date,true)}</button>${proposedSets(h.sets,e.name)}</div>`).join('')}</details></td></tr>`).join('')||'<tr><td colspan="4">No recorded exercise sets for this type yet. Name a completed workout Upper 1, Upper 2, Lower 1 or Lower 2 to establish its history.</td></tr>'}</tbody></table></div></section>${progressionSettings(plan)}${plan.omittedExercises.length?`<section class="panel plan-intro"><div><h2>Seen earlier, absent from your latest session</h2><p>${plan.omittedExercises.map(e=>escape(e.name)+' ('+date(e.lastDate,true)+')').join(' · ')}</p><p class="muted">These were not added automatically; the proposal follows your latest exercise list.</p></div></section>`:''}<details class="panel muscle-editor"><summary>How the proposal works</summary><p>Exercise order and set counts come from the latest named session. For each load group, all sets must reach the rep ceiling in two comparable sessions before its load increases by the equipment increment and its reps reset to the lower target. Top sets and back-off sets are checked separately. Until then, one set can gain one rep within the range. Default range: 8–12. Suggested increments: 2.5 kg at loads of 25+ kg, 1 kg at 10–25 kg, otherwise 0.5 kg; confirm or change these to match your equipment. An increase over 10%, falling reps, incomplete data, unclear bodyweight loads or a long break pauses progression.</p><p>These are editable-in-practice targets, not a prediction or a completed log. Choose achievable reps with consistent technique and adjust to how you feel. <a class="text-link" href="https://acsm.org/resistance-training-guidelines-update-2026/" target="_blank" rel="noreferrer">ACSM training background ↗</a></p></details>`;
 }
 
+function operationsPage() {
+  return renderOperationHistory({operations:state.operations??null,loading:Boolean(state.operationsLoading),error:state.operationsError||''});
+}
+async function operationRequest(identity=null, resume=false) {
+  const response=await fetch(resume?'/api/garmin-workouts':'/api/garmin-operations'+(identity?'?id='+encodeURIComponent(identity):''),{
+    cache:'no-store',signal:AbortSignal.timeout(resume?45000:10000),
+    ...(resume?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation:'integration_resume',requestId:identity})}:{}),
+  });
+  const result=await response.json();
+  if(!response.ok)throw new Error(result.error||'Operation status is unavailable.');
+  return result;
+}
+async function loadOperationHistory() {
+  const sequence=++operationSequence;
+  state.operationsLoading=true;state.operationsError='';
+  if(state.page==='operations')render();
+  try {
+    const result=await operationRequest();
+    if(!Array.isArray(result.operations))throw new Error('Operation history is unavailable.');
+    if(sequence===operationSequence)state.operations=result.operations;
+  } catch(error) {
+    if(sequence===operationSequence)state.operationsError=error.message||'Operation history is unavailable.';
+  } finally {
+    if(sequence===operationSequence){state.operationsLoading=false;if(state.page==='operations')render();}
+  }
+}
+async function reviewOperation(identity) {
+  const sequence=++operationReviewSequence;
+  const operation=await operationRequest(identity);
+  if(sequence!==operationReviewSequence)return;
+  state.operationReview=operation;
+  openEditor(recoveryReview(operation));
+}
+async function continueOperation(identity) {
+  if(state.operationSaving||state.operationReview?.id!==identity)return;
+  state.operationSaving=true;
+  openEditor(recoveryReview(state.operationReview,{busy:true}));
+  try {
+    const result=await operationRequest(identity,true);
+    state.operationReview=result;
+    openEditor(recoveryReview(result));
+    await loadOperationHistory();
+    if(result.status==='done'){toast('Operation completed.');load(true,true);}
+    else toast('Progress checked. Review the remaining steps.');
+  } catch(error) {
+    openEditor(recoveryReview(state.operationReview,{error:(error.message||'Progress could not be confirmed.')+' Refresh status before continuing again; the original confirmation is retained.'}));
+  } finally {state.operationSaving=false;}
+}
 function garminPage() {
   const rows=state.garminWorkouts;
-  return `<section class="page-heading"><div><div class="eyebrow">GARMIN CONNECT</div><h1>Garmin workouts<span class="heading-dot">.</span></h1><p>Edit your Garmin strength templates or fill next-session targets.</p></div><button class="button button-dark" data-action="load-garmin">${rows?'Refresh workouts':'Load Garmin workouts'}</button></section><div class="notice">Full edit lets you change exercises, sets, order, rest, repeat blocks, title and notes. Every save has a review step.</div><section class="panel feature-panel"><div class="table-heading"><h2>Your Garmin workout library</h2></div>${rows?`<div class="table-scroll"><table><thead><tr><th>Garmin workout</th><th>Next-session plan</th><th>Update</th></tr></thead><tbody>${rows.map(w=>`<tr><td>${escape(w.name)}</td><td>${escape((state.data.nextSessions||[]).find(p=>p.type===w.planType)?.name||'Manual edits available')}</td><td><div class="garmin-library-actions"><button class="button button-dark" data-full-garmin="${w.id}">Full edit</button><button class="button" data-preview-garmin="${w.id}">Quick weights & reps</button></div></td></tr>`).join('')||'<tr><td colspan="3">No strength workout templates found in Garmin Connect.</td></tr>'}</tbody></table></div>`:'<p class="small-empty">Load your existing Garmin workouts to choose one to update.</p>'}</section>`;
+  return `<section class="page-heading"><div><div class="eyebrow">GARMIN CONNECT</div><h1>Garmin workouts<span class="heading-dot">.</span></h1><p>Edit your Garmin strength templates or fill next-session targets. <a class="text-link" href="#operations">View operation recovery →</a></p></div><button class="button button-dark" data-action="load-garmin">${rows?'Refresh workouts':'Load Garmin workouts'}</button></section><div class="notice">Full edit lets you change exercises, sets, order, rest, repeat blocks, title and notes. Every save has a review step.</div><section class="panel feature-panel"><div class="table-heading"><h2>Your Garmin workout library</h2></div>${rows?`<div class="table-scroll"><table><thead><tr><th>Garmin workout</th><th>Next-session plan</th><th>Update</th></tr></thead><tbody>${rows.map(w=>`<tr><td>${escape(w.name)}</td><td>${escape((state.data.nextSessions||[]).find(p=>p.type===w.planType)?.name||'Manual edits available')}</td><td><div class="garmin-library-actions"><button class="button button-dark" data-full-garmin="${w.id}">Full edit</button><button class="button" data-preview-garmin="${w.id}">Quick weights & reps</button></div></td></tr>`).join('')||'<tr><td colspan="3">No strength workout templates found in Garmin Connect.</td></tr>'}</tbody></table></div>`:'<p class="small-empty">Load your existing Garmin workouts to choose one to update.</p>'}</section>`;
 }
 async function garminRequest(body) {
   const response=await fetch('/api/garmin-workouts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -822,21 +872,38 @@ function markSettingsDirty(target) {
   form.dataset.dirty='true';
   if(!form.querySelector('.settings-draft-notice'))form.insertAdjacentHTML('afterbegin','<p class="settings-draft-notice feature-note" role="status">Unsaved changes are kept while you navigate this tab. <button type="button" class="text-link" data-reset-settings>Discard changes and reload settings</button></p>');
 }
+function restoreRenderFocus(focused) {
+  if(!focused||focused===document.body)return;
+  if(focused.isConnected){focused.focus({preventScroll:true});return;}
+  // Rendering replaces controls. Match their stable identity, not their position
+  // or changing text, so keyboard users can continue from the same control.
+  const identity=[...focused.attributes].filter(a=>a.name==='id'||a.name==='href'||a.name.startsWith('data-'));
+  if(!identity.length)return;
+  const replacement=[...document.querySelectorAll(focused.tagName)].find(node=>identity.every(a=>node.getAttribute(a.name)===a.value));
+  if(replacement&&!replacement.disabled)replacement.focus({preventScroll:true});
+}
 function render() {
+  const focused=document.activeElement;
   nav();
   document.title=`${pages[state.page]} · Garmin RepTrace`;
-  if (!state.data) return;
+  if(state.data){
+  $('#footer-source').textContent = `${state.data.workouts.length} workouts · ${state.data.sets.length.toLocaleString()} sets · ${state.data.timezone}`;
+  const time = new Date(state.data.refreshedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+  $('#sync-status').textContent = state.refreshError ? (state.refreshBusy?'Update in progress':'Refresh unavailable') : `Refreshed ${time}`;
+  }
+  if(state.page==='operations'){
+    $('#main').innerHTML=operationsPage();
+    restoreRenderFocus(focused);
+    return;
+  }
+  if(!state.data){$('#main').innerHTML=state.refreshError?unavailableDashboard():loadingSkeleton();return;}
   const view = current();
   const templates = {overview,nutrition:nutritionPage,sync:syncPage,next:nextSessionPage,exercises:exercisesPage,workouts:workoutsPage,records:recordsPage,recovery:recoveryPage,insights:insightsPage,volume:volumePage,compare:comparePage,logging:loggingPage,goals:goalsPage,garmin:garminPage,preferences:preferencesPage};
-  const warning=state.refreshError?'<div class="refresh-notice" role="status"><div><strong>Showing previously loaded history</strong><span>The latest refresh failed. Your saved data is still available below.</span></div><button class="button" data-action="retry">Try again</button></div>':'';
-  const focused=document.activeElement;
+  const warning=state.refreshError?`<div class="refresh-notice" role="status"><div><strong>Showing previously loaded history</strong><span>${state.refreshBusy?'Training records are being updated. Try again shortly for a complete snapshot.':'The latest refresh failed. Your saved data is still available below.'}</span></div><button class="button" data-action="retry">Try again</button></div>`:'';
   for(const form of document.querySelectorAll(settingsFormSelector))if(form.dataset.dirty)settingsDrafts.set(form.id,form);
   $('#main').innerHTML = warning+templates[state.page](view);
   for(const [id,form] of settingsDrafts){const replacement=document.getElementById(id);if(replacement){replacement.replaceWith(form);const disclosure=form.closest('details');if(disclosure)disclosure.open=true;}}
-  if(focused?.isConnected)focused.focus({preventScroll:true});
-  $('#footer-source').textContent = `${state.data.workouts.length} workouts · ${state.data.sets.length.toLocaleString()} sets · ${state.data.timezone}`;
-  const time = new Date(state.data.refreshedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
-  $('#sync-status').textContent = state.refreshError ? 'Refresh unavailable' : `Refreshed ${time}`;
+  restoreRenderFocus(focused);
   bindChart();
 }
 let chartClickUntil=0;
@@ -981,30 +1048,38 @@ function toast(message) {
 function loadingSkeleton() {
   return `<section class="loading-dashboard" aria-busy="true" aria-label="Loading training history"><p role="status">Bringing your training history together…</p><div class="skeleton-heading skeleton" aria-hidden="true"></div><div class="skeleton-cards" aria-hidden="true">${'<div class="skeleton"></div>'.repeat(4)}</div><div class="skeleton-chart skeleton" aria-hidden="true"></div><p class="muted">Reading your recorded workouts and daily health data.</p></section>`;
 }
+function unavailableDashboard() {
+  return `<section class="error-state"><span>${icon('activity')}</span><h1>${state.refreshBusy?'Training update in progress.':'Let’s reconnect your history.'}</h1><p>${state.refreshBusy?'Records are being updated. Try again shortly for a complete snapshot.':'Your training database is temporarily unavailable.'}</p><button class="button button-dark" data-action="retry">${icon('refresh')} Try again</button><p><a class="text-link" href="#operations">View operation recovery</a></p></section>`;
+}
 async function load(silent = false, force = false) {
   const sequence=++loadSequence;
-  if(!state.data)$('#main').innerHTML=loadingSkeleton();
+  if(!state.data&&state.page!=='operations')$('#main').innerHTML=loadingSkeleton();
   $('#refresh').classList.add('spinning');
   $('#refresh').disabled=true;
   $('#sync-status').textContent='Refreshing…';
   try {
     const response=await fetch('/api/data'+(silent&&!force?'':'?refresh=1'),{cache:'no-store',signal:AbortSignal.timeout(30000)});
-    if(!response.ok) throw new Error('Data unavailable');
+    if(!response.ok){
+      const error=new Error('Data unavailable');
+      error.busy=response.status===503&&Boolean(response.headers?.get('Retry-After'));
+      throw error;
+    }
     const data=await response.json();
     if(sequence!==loadSequence)return;
     if(!Array.isArray(data.sets)||!Array.isArray(data.workouts))throw new Error('Invalid data');
     data.hiddenSets=data.sets.filter(s=>s.exercise.trim().toLowerCase()==='unknown');
     data.sets=data.sets.filter(s=>s.exercise.trim().toLowerCase()!=='unknown');
-    state.data=data;state.refreshError=false;document.body.classList.remove('offline');render();
+    state.data=data;state.refreshError=false;state.refreshBusy=false;document.body.classList.remove('offline');render();
     $('.connection').innerHTML='<span class="status-dot"></span> Connected to your history';
     if(!silent)toast('Your training history is up to date.');
   } catch(error) {
     if(sequence!==loadSequence)return;
-    if(state.data){state.refreshError=true;render();}
-    else $('#main').innerHTML=`<section class="error-state"><span>${icon('activity')}</span><h1>Let’s reconnect your history.</h1><p>Your training database is temporarily unavailable.</p><button class="button button-dark" data-action="retry">${icon('refresh')} Try again</button></section>`;
-    $('#sync-status').textContent='Connection unavailable';
-    document.body.classList.add('offline');
-    $('.connection').innerHTML='<span class="status-dot"></span> Connection unavailable';
+    state.refreshBusy=Boolean(error.busy);state.refreshError=true;
+    if(state.data||state.page==='operations'){state.refreshError=true;render();}
+    else $('#main').innerHTML=unavailableDashboard();
+    $('#sync-status').textContent=state.refreshBusy?'Update in progress':'Connection unavailable';
+    document.body.classList[state.refreshBusy?'remove':'add']('offline');
+    $('.connection').innerHTML='<span class="status-dot"></span> '+(state.refreshBusy?'Training update in progress':'Connection unavailable');
   } finally {
     if(sequence===loadSequence){
       $('#refresh').classList.remove('spinning');
@@ -1015,6 +1090,7 @@ async function load(silent = false, force = false) {
 function navigate(page) {
   if(!pages[page])page='overview';
   state.page=page;render();
+  if(page==='operations')loadOperationHistory();
   window.scrollTo({top:0,behavior:'auto'});
 }
 document.addEventListener('click',event=>{
@@ -1125,6 +1201,17 @@ $('#refresh').addEventListener('click',()=>load());
 $('#workout-dialog').addEventListener('click',event=>{if(event.target===$('#workout-dialog'))$('#workout-dialog').close();});
 window.addEventListener('hashchange',()=>navigate(location.hash.slice(1)));
 document.addEventListener('click',async event=>{
+  const operationRefresh=event.target.closest('[data-operation-refresh]');
+  if(operationRefresh){await loadOperationHistory();return;}
+  const operationReview=event.target.closest('[data-operation-review]');
+  if(operationReview){
+    operationReview.disabled=true;
+    try{await reviewOperation(operationReview.dataset.operationReview);}catch(error){toast(error.message||'Operation unavailable.');}
+    finally{operationReview.disabled=false;}
+    return;
+  }
+  const operationResume=event.target.closest('[data-operation-resume]');
+  if(operationResume){await continueOperation(operationResume.dataset.operationResume);return;}
   const week=event.target.closest('[data-volume-week]');
   if(week){state.volumeWeek=week.dataset.volumeWeek;render();document.querySelector(`[data-volume-week="${state.volumeWeek}"]`)?.focus();return;}
   const target=event.target.closest('button');if(!target)return;
@@ -1184,7 +1271,7 @@ document.addEventListener('click',async event=>{
   }
   if(target.dataset.planType){state.planType=target.dataset.planType;render();return;}
   if(target.dataset.themeChoice){const id=window.FormTheme.apply(target.dataset.themeChoice);render();document.querySelector(`[data-theme-choice="${id}"]`).focus({preventScroll:true});toast('Color theme saved.');return;}
-  if(target.matches('.close-editor')){if(!state.workoutSaving)$('#editor-dialog').close();return;}
+  if(target.matches('.close-editor')){if(!state.workoutSaving&&!state.operationSaving)$('#editor-dialog').close();return;}
   if(target.dataset.range){state.zoomHistory=[];state.range=target.dataset.range;state.limit=24;render();return;}
   if(target.dataset.matchExercise){state.selected=target.dataset.matchExercise;state.metric='matched';state.search='';location.hash='exercises';navigate('exercises');return;}
   if(target.hasAttribute('data-volume-reset')){
@@ -1359,7 +1446,7 @@ document.addEventListener('submit',async event=>{
         await saveAction(draft.pending);
         removeStoredDraft(draft.sessionId);state.draft=null;$('#editor-dialog').close();toast('Workout saved to your training database.');
       } catch(failure) {
-        if(failure.status===400||failure.status===409){delete draft.pending;draft.requestId=crypto.randomUUID();form.querySelector('fieldset').disabled=false;form.querySelector('[data-action="discard-draft"]').disabled=false;}
+        if([400,401,403,409].includes(failure.status)){delete draft.pending;draft.requestId=crypto.randomUUID();button.textContent='Save workout';form.querySelector('fieldset').disabled=false;form.querySelector('[data-action="discard-draft"]').disabled=false;}
         else {button.textContent='Retry save';failure.message+=' Your draft is retained. Retry uses the same save identity to prevent duplicates.';}
         persistDraft();throw failure;
       } finally {state.workoutSaving=false;}
@@ -1388,14 +1475,16 @@ document.addEventListener('submit',async event=>{
     }
   }catch(e){error.textContent=e.message+(e.status===409&&form.matches(settingsFormSelector)?' Your input is retained. Discard these changes to load the latest settings before reapplying your edits.':'');button.disabled=false;}
 });
-$('#editor-dialog').addEventListener('click',event=>{if(event.target===$('#editor-dialog')&&!state.workoutSaving)$('#editor-dialog').close();});
+$('#editor-dialog').addEventListener('click',event=>{if(event.target===$('#editor-dialog')&&!state.workoutSaving&&!state.operationSaving)$('#editor-dialog').close();});
 
-$('#editor-dialog').addEventListener('cancel',event=>{if(state.workoutSaving)event.preventDefault();});
+$('#editor-dialog').addEventListener('cancel',event=>{if(state.workoutSaving||state.operationSaving)event.preventDefault();});
 $('#editor-dialog').addEventListener('close',()=>{if(state.page==='logging'&&state.data)render();});
 
 window.addEventListener('storage',event=>{if(event.key===window.FormTheme.key&&state.data)render();});
 
-state.page=pages[location.hash.slice(1)]?location.hash.slice(1):'overview';nav();load(true);
+state.page=pages[location.hash.slice(1)]?location.hash.slice(1):'overview';nav();
+if(state.page==='operations'){render();loadOperationHistory();}
+load(true);
 setInterval(()=>load(true),300000);
 
 document.addEventListener('keydown',event=>{

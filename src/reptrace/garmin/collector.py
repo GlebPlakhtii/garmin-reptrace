@@ -310,28 +310,30 @@ class DatabaseWriteError(RuntimeError):
 
 
 def write_points_to_influxdb(points):
-    write_chunk_size = 20000
-    try:
-        if points:
-            if TAG_MEASUREMENTS_WITH_USER_EMAIL:
-                for item in points:
-                    item["tags"].update(
-                        {"User_ID": garmin_obj.garth.profile.get("userName", "Unknown")}
-                    )
-            for i in range(0, len(points), write_chunk_size):
-                if INFLUXDB_VERSION == "1":
-                    if not influxdbclient.write_points(
-                        points[i : i + write_chunk_size]
-                    ):
-                        raise DatabaseWriteError(
-                            "InfluxDB did not accept collected points"
+    from reptrace.storage.coordination import collector_batch
+    with collector_batch(points, influxdbclient, INFLUXDB_VERSION) as points:
+        write_chunk_size = 20000
+        try:
+            if points:
+                if TAG_MEASUREMENTS_WITH_USER_EMAIL:
+                    for item in points:
+                        item["tags"].update(
+                            {"User_ID": garmin_obj.garth.profile.get("userName", "Unknown")}
                         )
-                else:
-                    influxdbclient.write(record=points[i : i + write_chunk_size])
-            logging.info("Success : updated influxDB database with new points")
-    except (InfluxDBClientError, InfluxDBError) as err:
-        logging.error("Write failed: %s", type(err).__name__)
-        raise DatabaseWriteError("Could not persist collected data") from err
+                for i in range(0, len(points), write_chunk_size):
+                    if INFLUXDB_VERSION == "1":
+                        if not influxdbclient.write_points(
+                            points[i : i + write_chunk_size]
+                        ):
+                            raise DatabaseWriteError(
+                                "InfluxDB did not accept collected points"
+                            )
+                    else:
+                        influxdbclient.write(record=points[i : i + write_chunk_size])
+                logging.info("Success : updated influxDB database with new points")
+        except (InfluxDBClientError, InfluxDBError) as err:
+            logging.error("Write failed: %s", type(err).__name__)
+            raise DatabaseWriteError("Could not persist collected data") from err
 
 
 def get_daily_stats(date_str):

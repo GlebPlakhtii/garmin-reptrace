@@ -4,32 +4,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from math import isfinite
 
-# Recorded loads on bodyweight/assisted movements cannot estimate a total-load 1RM.
-BODYWEIGHT_CATEGORIES = {
-    "PULL_UP",
-    "PUSH_UP",
-    "DIP",
-    "CRUNCH",
-    "SIT_UP",
-    "PLANK",
-    "LEG_RAISE",
-}
-EXERCISE_NAME_ALIASES = {
-    "Bench Press": "Barbell Bench Press",
-    "Flye": "Machine Chest Fly",
-    "Machine Fly": "Machine Chest Fly",
-    "Fly": "Cable Chest Fly",
-    "Banded Fly": "Cable Chest Fly",
-    "Cable Fly": "Cable Chest Fly",
-    "Cable Crossover": "Cable Chest Fly",
-    "Weighted Seated Calf Raise": "Leg Press Calf Raise",
-    "Weighted Leg Curl": "Lying Leg Curl",
-    "Weighted Leg Extensions": "Machine Leg Extension",
-    "Leg Extensions": "Machine Leg Extension",
-    "Leg Extension": "Machine Leg Extension",
-    "Triceps Extension": "Cable Triceps Extension",
-    "Cable Tricep Extension": "Cable Triceps Extension",
-}
+from reptrace.training.catalog import BODYWEIGHT_CATEGORIES, EXERCISE_NAME_ALIASES
 
 
 def number(value):

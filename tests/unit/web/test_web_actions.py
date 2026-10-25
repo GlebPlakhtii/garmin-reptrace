@@ -156,6 +156,25 @@ class ActionHandlerTests(unittest.TestCase):
                 self.send('{"operation":"query"}', path="/api/database")[0], 503
             )
 
+    def test_invalid_garmin_operation_is_rejected_before_services_are_called(self):
+        with (
+            patch.object(web, "GARMIN_WORKOUTS") as workouts,
+            patch.object(web, "GARMIN_INTEGRATION") as integration,
+            patch.object(web, "STORE") as store,
+        ):
+            for operation in (None, 1, [], {}, ""):
+                with self.subTest(operation=operation):
+                    self.assertEqual(
+                        self.send(
+                            json.dumps({"operation": operation}),
+                            path="/api/garmin-workouts",
+                        )[0],
+                        400,
+                    )
+            workouts.call.assert_not_called()
+            integration.call.assert_not_called()
+            store.get.assert_not_called()
+
     def test_food_endpoint_uses_local_origin_guard_and_storage(self):
         self.state.food_action.return_value = {
             "ok": True,

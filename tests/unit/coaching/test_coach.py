@@ -74,15 +74,16 @@ class CoachToolsTests(unittest.TestCase):
             "rep_max": 10,
             "weight_step": 2.5,
         }
-        tools.call("set_progression_rule", args)
-        tools.call("set_progression_rule", args)
+        tools.data["metadataRevision"] = "current"
+        first = tools.call("set_progression_rule", args)
+        second = tools.call("set_progression_rule", args)
+        self.assertEqual(first["draftId"], second["draftId"])
+        self.assertFalse(first["saved"])
+        tools.save_action.assert_not_called()
         self.assertEqual(
-            tools.save_action.call_args_list[0].args[0]["requestId"],
-            tools.save_action.call_args_list[1].args[0]["requestId"],
+            tools.state["pendingEdits"][first["draftId"]]["body"]["value"]["repMax"], 10
         )
-        self.assertEqual(
-            tools.data["progressionRules"]["Barbell Bench Press"]["repMax"], 10
-        )
+        self.assertNotIn("progressionRules", tools.data)
         with self.assertRaises(ValueError):
             tools.call("set_progression_rule", dict(args, rep_min=12))
 

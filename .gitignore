@@ -33,3 +33,6 @@ docs/project-review.md
 # Local editor settings
 .idea/
 .vscode/
+
+# Private local deployment settings (credentials and retained data volumes).
+docker-compose.override.yml

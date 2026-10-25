@@ -334,6 +334,9 @@ def already_imported(markers, source_hash, session):
     return True
 
 
+from reptrace.storage.coordination import strength_writer, protected_activity
+
+@strength_writer
 def main():
     from influxdb import InfluxDBClient
 
@@ -465,6 +468,8 @@ def main():
         return
     # Persist the complete originals before any replacement. Old source data stays
     # available in archive measurements; manual raw rows are also stored verbatim.
+    if any(protected_activity(points[-1]['tags']['ActivityID']) for points, _ in plan):
+        raise RuntimeError('Unresolved Garmin integration operation; reconcile it before importing')
     all_archived = [p for _, archive in plan for p in archive]
     if all_archived and not client.write_points(all_archived):
         raise RuntimeError("Could not archive Garmin originals; import aborted")

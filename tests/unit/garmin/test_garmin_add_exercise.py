@@ -171,6 +171,6 @@ class AdditionTests(unittest.TestCase):
             client.update.assert_not_called()
             bot.handle_edit("edit:save:" + result["draftId"])
             self.assertIn(
-                "reviewed exercise additions", api.call.call_args.args[1]["text"]
+                "reviewed structure and targets", api.call.call_args.args[1]["text"]
             )
             client.update.assert_called_once()

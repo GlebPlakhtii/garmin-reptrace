@@ -1,0 +1,1133 @@
+{
+  "schemaVersion": 1,
+  "muscleGroups": [
+    "Chest",
+    "Back",
+    "Shoulders",
+    "Biceps",
+    "Triceps",
+    "Quads",
+    "Hamstrings",
+    "Glutes",
+    "Calves",
+    "Core",
+    "Adductors",
+    "Unassigned"
+  ],
+  "bodyweightCategories": [
+    "CRUNCH",
+    "DIP",
+    "LEG_RAISE",
+    "PLANK",
+    "PULL_UP",
+    "PUSH_UP",
+    "SIT_UP"
+  ],
+  "aliases": {
+    "Bench Press": "Barbell Bench Press",
+    "Flye": "Machine Chest Fly",
+    "Machine Fly": "Machine Chest Fly",
+    "Fly": "Cable Chest Fly",
+    "Banded Fly": "Cable Chest Fly",
+    "Cable Fly": "Cable Chest Fly",
+    "Cable Crossover": "Cable Chest Fly",
+    "Weighted Seated Calf Raise": "Leg Press Calf Raise",
+    "Weighted Leg Curl": "Lying Leg Curl",
+    "Weighted Leg Extensions": "Machine Leg Extension",
+    "Leg Extensions": "Machine Leg Extension",
+    "Leg Extension": "Machine Leg Extension",
+    "Triceps Extension": "Cable Triceps Extension",
+    "Cable Tricep Extension": "Cable Triceps Extension"
+  },
+  "exercises": {
+    "Barbell Bench Press": {
+      "muscle": "Chest",
+      "roles": {
+        "primary": [
+          "Chest"
+        ],
+        "secondary": [
+          "Shoulders",
+          "Triceps"
+        ]
+      },
+      "volume": {
+        "travelM": 0.4,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 1,
+        "confidence": "estimate",
+        "rationale": "Vertical barbell press; total bar weight through an assumed 0.40 m concentric rise. This defines the reference factor.",
+        "assistance": false
+      }
+    },
+    "Incline Bench Press": {
+      "muscle": "Chest",
+      "roles": {
+        "primary": [
+          "Chest"
+        ],
+        "secondary": [
+          "Shoulders",
+          "Triceps"
+        ]
+      },
+      "volume": {
+        "travelM": 0.45,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 1.125,
+        "confidence": "estimate",
+        "rationale": "Incline barbell press: total bar load with an assumed 0.45 m vertical rise; longer rise than the flat-press reference.",
+        "assistance": false
+      }
+    },
+    "Incline Dumbbell Bench Press": {
+      "muscle": "Chest",
+      "roles": {
+        "primary": [
+          "Chest"
+        ],
+        "secondary": [
+          "Shoulders",
+          "Triceps"
+        ]
+      },
+      "volume": {
+        "travelM": 0.45,
+        "forceRatio": 1,
+        "loadCopies": 2,
+        "bodyweight": 0,
+        "multiplier": 1.125,
+        "confidence": "estimate",
+        "rationale": "Two dumbbells pressed together; each rises about 0.45 m. Multiply the per-dumbbell logged kg by 2, not the rep count.",
+        "assistance": false
+      }
+    },
+    "Fly": {
+      "muscle": "Chest",
+      "roles": {
+        "primary": [
+          "Chest"
+        ],
+        "secondary": [
+          "Shoulders"
+        ]
+      },
+      "volume": {
+        "travelM": 0.6,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 1.5,
+        "confidence": "calibrate",
+        "rationale": "Shoulder horizontal adduction over an estimated 0.60 m cable travel. Assumes logged load is the combined effective cable resistance; use 2 load copies if logging one of two simultaneously moving independent stacks.",
+        "assistance": false
+      }
+    },
+    "Cable Chest Fly": {
+      "muscle": "Chest",
+      "roles": {
+        "primary": [
+          "Chest"
+        ],
+        "secondary": [
+          "Shoulders"
+        ]
+      },
+      "volume": {
+        "travelM": 0.6,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 1.5,
+        "confidence": "calibrate",
+        "rationale": "Shoulder horizontal adduction over an estimated 0.60 m cable travel. Assumes logged load is the combined effective cable resistance; use 2 load copies if logging one of two simultaneously moving independent stacks.",
+        "assistance": false
+      }
+    },
+    "Flye": {
+      "muscle": "Chest",
+      "roles": {
+        "primary": [
+          "Chest"
+        ],
+        "secondary": [
+          "Shoulders"
+        ]
+      },
+      "volume": {
+        "travelM": 0.35,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.875,
+        "confidence": "calibrate",
+        "rationale": "Pec-deck shoulder adduction: both arms share a machine stack. Assumed effective load travel 0.35 m; cam and lever geometry unknown, no free-weight equivalence claimed.",
+        "assistance": false
+      }
+    },
+    "Machine Chest Fly": {
+      "muscle": "Chest",
+      "roles": {
+        "primary": [
+          "Chest"
+        ],
+        "secondary": [
+          "Shoulders"
+        ]
+      },
+      "volume": {
+        "travelM": 0.35,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.875,
+        "confidence": "calibrate",
+        "rationale": "Pec-deck shoulder adduction: both arms share a machine stack. Assumed effective load travel 0.35 m; cam and lever geometry unknown, no free-weight equivalence claimed.",
+        "assistance": false
+      }
+    },
+    "Push Up": {
+      "muscle": "Chest",
+      "roles": {
+        "primary": [
+          "Chest"
+        ],
+        "secondary": [
+          "Shoulders",
+          "Triceps"
+        ]
+      },
+      "volume": {
+        "travelM": 0.25,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0.72,
+        "multiplier": 0.625,
+        "confidence": "estimate",
+        "rationale": "Average supported bodyweight approximated as 72% (research reports position dependence); estimated 0.25 m upper-body rise. Added load assumes similar travel, with placement needing calibration.",
+        "assistance": false
+      }
+    },
+    "Barbell Deadlift": {
+      "muscle": "Hamstrings",
+      "roles": {
+        "primary": [
+          "Hamstrings",
+          "Glutes",
+          "Quads"
+        ],
+        "secondary": [
+          "Back",
+          "Core"
+        ]
+      },
+      "volume": {
+        "travelM": 0.6,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0.25,
+        "multiplier": 1.5,
+        "confidence": "estimate",
+        "rationale": "Floor-to-lockout bar rise estimated at 0.60 m. Adds a work-equivalent 25% body mass for the rising torso; not the entire body mass.",
+        "assistance": false
+      }
+    },
+    "Romanian Deadlift": {
+      "muscle": "Hamstrings",
+      "roles": {
+        "primary": [
+          "Hamstrings",
+          "Glutes"
+        ],
+        "secondary": [
+          "Back",
+          "Core"
+        ]
+      },
+      "volume": {
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 1,
+        "confidence": "unidentified",
+        "rationale": "The muscle group is known, but equipment, load convention and travel have no reviewed volume profile. Review these factors before enabling adjusted volume.",
+        "assistance": false
+      }
+    },
+    "Weighted Leg Curl": {
+      "muscle": "Hamstrings",
+      "roles": {
+        "primary": [
+          "Hamstrings"
+        ],
+        "secondary": [
+          "Calves"
+        ]
+      },
+      "volume": {
+        "travelM": 0.3,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.75,
+        "confidence": "calibrate",
+        "rationale": "Knee flexion against a roller/cam, assumed effective load travel 0.30 m. Both legs share one stack; pad-force/stack ratio requires calibration.",
+        "assistance": false
+      }
+    },
+    "Lying Leg Curl": {
+      "muscle": "Hamstrings",
+      "roles": {
+        "primary": [
+          "Hamstrings"
+        ],
+        "secondary": [
+          "Calves"
+        ]
+      },
+      "volume": {
+        "travelM": 0.3,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.75,
+        "confidence": "calibrate",
+        "rationale": "Knee flexion against a roller/cam, assumed effective load travel 0.30 m. Both legs share one stack; pad-force/stack ratio requires calibration.",
+        "assistance": false
+      }
+    },
+    "Seated Leg Curl": {
+      "muscle": "Hamstrings",
+      "roles": {
+        "primary": [
+          "Hamstrings"
+        ],
+        "secondary": [
+          "Calves"
+        ]
+      },
+      "volume": {
+        "travelM": 0.35,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.875,
+        "confidence": "calibrate",
+        "rationale": "Seated knee flexion with estimated 0.35 m effective load travel. One shared stack, supported torso; machine cam ratio must be calibrated.",
+        "assistance": false
+      }
+    },
+    "Barbell Shrug": {
+      "muscle": "Back",
+      "volume": {
+        "travelM": 0.12,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.3,
+        "confidence": "estimate",
+        "rationale": "Short vertical scapular elevation, estimated 0.12 m; total barbell load, not two independent hand loads.",
+        "assistance": false
+      }
+    },
+    "Shrug": {
+      "muscle": "Back",
+      "volume": {
+        "travelM": 0.12,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.3,
+        "confidence": "calibrate",
+        "rationale": "Generic shrug has only about 0.12 m vertical travel. History spans 28-60 kg with unspecified equipment; assumes combined load. Set load copies to 2 if these are two per-dumbbell loads.",
+        "assistance": false
+      }
+    },
+    "Lat Pulldown": {
+      "muscle": "Back",
+      "roles": {
+        "primary": [
+          "Back"
+        ],
+        "secondary": [
+          "Biceps",
+          "Shoulders"
+        ]
+      },
+      "volume": {
+        "travelM": 0.55,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 1.375,
+        "confidence": "calibrate",
+        "rationale": "Shoulder adduction and elbow flexion over estimated 0.55 m cable travel. Two hands share a single bar/stack; assumes labelled load is effective bar resistance.",
+        "assistance": false
+      }
+    },
+    "Straight Arm Pulldown": {
+      "muscle": "Back",
+      "roles": {
+        "primary": [
+          "Back"
+        ],
+        "secondary": [
+          "Triceps"
+        ]
+      },
+      "volume": {
+        "travelM": 0.65,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 1.625,
+        "confidence": "calibrate",
+        "rationale": "Long shoulder-extension arc produces estimated 0.65 m cable travel. One shared attachment/stack; assumes labelled effective resistance, not an arbitrary bonus for a long moment arm.",
+        "assistance": false
+      }
+    },
+    "Pull Up": {
+      "muscle": "Back",
+      "roles": {
+        "primary": [
+          "Back"
+        ],
+        "secondary": [
+          "Biceps",
+          "Shoulders"
+        ]
+      },
+      "volume": {
+        "travelM": 0.45,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 1,
+        "multiplier": 1.125,
+        "confidence": "estimate",
+        "rationale": "Near-whole-body vertical rise estimated 0.45 m. Logged kg are added weight; body mass is included once. Assistance reverses the external-load sign.",
+        "assistance": false
+      }
+    },
+    "Assisted Pull Up": {
+      "muscle": "Back",
+      "roles": {
+        "primary": [
+          "Back"
+        ],
+        "secondary": [
+          "Biceps",
+          "Shoulders"
+        ]
+      },
+      "volume": {
+        "travelM": 0.45,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 1,
+        "multiplier": 1.125,
+        "confidence": "estimate",
+        "rationale": "Pull up with estimated 0.45 m body rise. Recorded kg are assistance and are subtracted from body mass.",
+        "assistance": true
+      }
+    },
+    "Chin Up": {
+      "muscle": "Back",
+      "roles": {
+        "primary": [
+          "Back"
+        ],
+        "secondary": [
+          "Biceps",
+          "Shoulders"
+        ]
+      },
+      "volume": {
+        "travelM": 0.45,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 1,
+        "multiplier": 1.125,
+        "confidence": "estimate",
+        "rationale": "Supinated vertical pull, estimated 0.45 m rise of near-whole-body mass plus added load.",
+        "assistance": false
+      }
+    },
+    "Row": {
+      "muscle": "Back",
+      "roles": {
+        "primary": [
+          "Back"
+        ],
+        "secondary": [
+          "Biceps",
+          "Shoulders"
+        ]
+      },
+      "volume": {
+        "travelM": 0.5,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 1.25,
+        "confidence": "calibrate",
+        "rationale": "Generic row: assumes one combined external load through 0.50 m effective travel. No evidence for inverted/bodyweight row. Zero recorded kg is missing resistance until exercise/load is identified.",
+        "assistance": false
+      }
+    },
+    "Seated Cable Row": {
+      "muscle": "Back",
+      "roles": {
+        "primary": [
+          "Back"
+        ],
+        "secondary": [
+          "Biceps",
+          "Shoulders"
+        ]
+      },
+      "volume": {
+        "travelM": 0.5,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 1.25,
+        "confidence": "calibrate",
+        "rationale": "Horizontal pull with estimated 0.50 m cable travel. A fixed direction-changing pulley does not halve resistance; assumes the stack label is effective handle resistance.",
+        "assistance": false
+      }
+    },
+    "Machine T-Bar Row": {
+      "muscle": "Back",
+      "roles": {
+        "primary": [
+          "Back"
+        ],
+        "secondary": [
+          "Biceps",
+          "Shoulders"
+        ]
+      },
+      "volume": {
+        "travelM": 0.35,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.875,
+        "confidence": "calibrate",
+        "rationale": "Chest-supported lever row; estimated 0.35 m effective plate rise. Logged plates are counted once, not per hand. Pivot location and plate-vs-handle lever arms are unknown.",
+        "assistance": false
+      }
+    },
+    "Bent Over Rear Delt Fly": {
+      "muscle": "Shoulders",
+      "roles": {
+        "primary": [
+          "Shoulders"
+        ],
+        "secondary": [
+          "Back"
+        ]
+      },
+      "volume": {
+        "travelM": 0.35,
+        "forceRatio": 1,
+        "loadCopies": 2,
+        "bodyweight": 0,
+        "multiplier": 0.875,
+        "confidence": "estimate",
+        "rationale": "Two dumbbells rise on a shoulder-abduction arc; assumed vertical load rise 0.35 m. Logged kg are per dumbbell.",
+        "assistance": false
+      }
+    },
+    "Rear Delt Fly": {
+      "muscle": "Shoulders",
+      "roles": {
+        "primary": [
+          "Shoulders"
+        ],
+        "secondary": [
+          "Back"
+        ]
+      },
+      "volume": {
+        "travelM": 0.35,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.875,
+        "confidence": "calibrate",
+        "rationale": "Historical loads of 40-45 kg suggest a reverse-fly machine, but the name alone cannot prove equipment. Assumes one shared stack and 0.35 m effective load travel; set 2 load copies only for simultaneous dumbbells.",
+        "assistance": false
+      }
+    },
+    "Lateral Raise": {
+      "muscle": "Shoulders",
+      "volume": {
+        "travelM": 0.55,
+        "forceRatio": 1,
+        "loadCopies": 2,
+        "bodyweight": 0,
+        "multiplier": 1.375,
+        "confidence": "estimate",
+        "rationale": "Two dumbbells lifted together on a long arm; estimated vertical dumbbell rise 0.55 m. Factor reflects displacement, not a claim that shoulder joint force equals dumbbell weight.",
+        "assistance": false
+      }
+    },
+    "Cable Lateral Raise": {
+      "muscle": "Shoulders",
+      "volume": {
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 1,
+        "confidence": "unidentified",
+        "rationale": "The muscle group is known, but the name does not establish one or two moving stacks or the pulley ratio. Review load convention and travel before enabling adjusted volume.",
+        "assistance": false
+      }
+    },
+    "One Arm Cable Lateral Raise": {
+      "muscle": "Shoulders",
+      "volume": {
+        "travelM": 0.6,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 1.5,
+        "confidence": "calibrate",
+        "rationale": "One cable handle travels an estimated 0.60 m on a shoulder-abduction arc. Total reps already include sides; no x2. Assumes effective handle resistance; verify pulley ratio.",
+        "assistance": false
+      }
+    },
+    "Seated Rear Lateral Raise": {
+      "muscle": "Shoulders",
+      "roles": {
+        "primary": [
+          "Shoulders"
+        ],
+        "secondary": [
+          "Back"
+        ]
+      },
+      "volume": {
+        "travelM": 0.35,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.875,
+        "confidence": "calibrate",
+        "rationale": "History spans 8-50 kg, consistent with mixed dumbbell/machine conventions. Uses one combined load and 0.35 m effective travel provisionally; split/rename mixed equipment before comparing. Change load copies to 2 for simultaneous per-dumbbell logging.",
+        "assistance": false
+      }
+    },
+    "Bicep Curl": {
+      "muscle": "Biceps",
+      "volume": {
+        "travelM": 0.35,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.875,
+        "confidence": "calibrate",
+        "rationale": "Dumbbell elbow flexion, assumed 0.35 m vertical rise. Uses one dumbbell per counted rep: recorded reps are total across sides. If both arms move together, change load copies to 2.",
+        "assistance": false
+      }
+    },
+    "Cable Biceps Curl": {
+      "muscle": "Biceps",
+      "volume": {
+        "travelM": 0.4,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 1,
+        "confidence": "calibrate",
+        "rationale": "Elbow flexion against a cable over an assumed 0.40 m handle travel. One loaded handle per counted rep. Assumes displayed kg mean handle resistance; verify pulley ratio.",
+        "assistance": false
+      }
+    },
+    "Curl": {
+      "muscle": "Biceps",
+      "volume": {
+        "travelM": 0.35,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.875,
+        "confidence": "calibrate",
+        "rationale": "Generic elbow-flexion label: assumes 0.35 m load rise and one load per rep. Equipment and kg convention are unidentified; recorded zero kg is treated as missing resistance, not bodyweight work.",
+        "assistance": false
+      }
+    },
+    "Incline Bicep Curl": {
+      "muscle": "Biceps",
+      "volume": {
+        "travelM": 0.4,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 1,
+        "confidence": "calibrate",
+        "rationale": "Elbow flexion from behind the torso with estimated 0.40 m dumbbell rise. One dumbbell per counted rep because reps include both sides; change load copies to 2 for simultaneous bilateral reps.",
+        "assistance": false
+      }
+    },
+    "Single Arm Preacher Curl": {
+      "muscle": "Biceps",
+      "volume": {
+        "travelM": 0.3,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.75,
+        "confidence": "estimate",
+        "rationale": "Supported one-arm elbow flexion, estimated 0.30 m vertical dumbbell rise. One dumbbell and total reps across sides; no side multiplier.",
+        "assistance": false
+      }
+    },
+    "Standing Ez Bar Biceps Curl": {
+      "muscle": "Biceps",
+      "volume": {
+        "travelM": 0.35,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.875,
+        "confidence": "estimate",
+        "rationale": "Standing elbow flexion, estimated 0.35 m vertical bar rise. Total EZ-bar load, counted once despite using both arms.",
+        "assistance": false
+      }
+    },
+    "Dip": {
+      "muscle": "Triceps",
+      "roles": {
+        "primary": [
+          "Triceps",
+          "Chest"
+        ],
+        "secondary": [
+          "Shoulders"
+        ]
+      },
+      "volume": {
+        "travelM": 0.3,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 1,
+        "multiplier": 0.75,
+        "confidence": "estimate",
+        "rationale": "Near-whole-body vertical rise estimated 0.30 m; added load is added to body mass, assistance is subtracted.",
+        "assistance": false
+      }
+    },
+    "Assisted Dip": {
+      "muscle": "Triceps",
+      "roles": {
+        "primary": [
+          "Triceps",
+          "Chest"
+        ],
+        "secondary": [
+          "Shoulders"
+        ]
+      },
+      "volume": {
+        "travelM": 0.3,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 1,
+        "multiplier": 0.75,
+        "confidence": "estimate",
+        "rationale": "Assisted dip with estimated 0.30 m body rise. Recorded kg are assistance and are subtracted from body mass.",
+        "assistance": true
+      }
+    },
+    "Lying Ez Bar Triceps Extension": {
+      "muscle": "Triceps",
+      "volume": {
+        "travelM": 0.35,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.875,
+        "confidence": "estimate",
+        "rationale": "Lying elbow extension, estimated 0.35 m vertical EZ-bar rise. Shared bar weight is counted once.",
+        "assistance": false
+      }
+    },
+    "Overhead Cable Tricep Extension": {
+      "muscle": "Triceps",
+      "volume": {
+        "travelM": 0.45,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 1.125,
+        "confidence": "calibrate",
+        "rationale": "Overhead elbow extension over estimated 0.45 m cable travel. Both hands share one attachment/stack; verify pulley ratio.",
+        "assistance": false
+      }
+    },
+    "Overhead Cable Triceps Extension": {
+      "muscle": "Triceps",
+      "volume": {
+        "travelM": 0.45,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 1.125,
+        "confidence": "calibrate",
+        "rationale": "Overhead elbow extension over estimated 0.45 m cable travel. Both hands share one attachment/stack; verify pulley ratio.",
+        "assistance": false
+      }
+    },
+    "Single Arm Cable Tricep Extension": {
+      "muscle": "Triceps",
+      "volume": {
+        "travelM": 0.4,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 1,
+        "confidence": "calibrate",
+        "rationale": "One-arm elbow extension through estimated 0.40 m cable travel. Reps are total across arms, so one effective handle load per counted rep; verify pulley ratio.",
+        "assistance": false
+      }
+    },
+    "Single Arm Cable Triceps Extension": {
+      "muscle": "Triceps",
+      "volume": {
+        "travelM": 0.4,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 1,
+        "confidence": "calibrate",
+        "rationale": "One-arm elbow extension through estimated 0.40 m cable travel. Reps are total across arms, so one effective handle load per counted rep; verify pulley ratio.",
+        "assistance": false
+      }
+    },
+    "Triceps Extension": {
+      "muscle": "Triceps",
+      "volume": {
+        "travelM": 0.4,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 1,
+        "confidence": "calibrate",
+        "rationale": "Pushdown through estimated 0.40 m cable travel. Both hands share one rope/bar and one stack; no doubling. Assumes displayed load is effective handle resistance.",
+        "assistance": false
+      }
+    },
+    "Cable Triceps Extension": {
+      "muscle": "Triceps",
+      "volume": {
+        "travelM": 0.4,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 1,
+        "confidence": "calibrate",
+        "rationale": "Pushdown through estimated 0.40 m cable travel. Both hands share one rope/bar and one stack; no doubling. Assumes displayed load is effective handle resistance.",
+        "assistance": false
+      }
+    },
+    "Bulgarian Split Squat": {
+      "muscle": "Quads",
+      "roles": {
+        "primary": [
+          "Quads",
+          "Glutes"
+        ],
+        "secondary": [
+          "Core",
+          "Adductors"
+        ]
+      },
+      "volume": {
+        "travelM": 0.4,
+        "forceRatio": 1,
+        "loadCopies": 2,
+        "bodyweight": 0.7,
+        "multiplier": 1,
+        "confidence": "calibrate",
+        "rationale": "Split squat estimated 0.40 m load rise with two dumbbells; work-equivalent body mass 70%. Total reps already include both legs, so there is no extra side multiplier. Change load copies if using one dumbbell.",
+        "assistance": false
+      }
+    },
+    "Barbell Squat": {
+      "muscle": "Quads",
+      "roles": {
+        "primary": [
+          "Quads",
+          "Glutes"
+        ],
+        "secondary": [
+          "Core",
+          "Adductors"
+        ]
+      },
+      "volume": {
+        "travelM": 0.5,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0.8,
+        "multiplier": 1.25,
+        "confidence": "estimate",
+        "rationale": "Barbell squat using the same estimate as Squat: 0.50 m load travel and 80% work-equivalent body mass. Logged kilograms are total added barbell load.",
+        "assistance": false
+      }
+    },
+    "Overhead Barbell Squat": {
+      "muscle": "Quads",
+      "roles": {
+        "primary": [
+          "Quads",
+          "Glutes"
+        ],
+        "secondary": [
+          "Core",
+          "Adductors"
+        ]
+      },
+      "volume": {
+        "travelM": 0.5,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0.8,
+        "multiplier": 1.25,
+        "confidence": "calibrate",
+        "rationale": "Squat pattern: estimated 0.50 m bar rise plus 80% work-equivalent body mass. Historical manual import maps Barbell Squat to this Garmin label; no extra overhead multiplier is assumed.",
+        "assistance": false
+      }
+    },
+    "Squat": {
+      "muscle": "Quads",
+      "roles": {
+        "primary": [
+          "Quads",
+          "Glutes"
+        ],
+        "secondary": [
+          "Core",
+          "Adductors"
+        ]
+      },
+      "volume": {
+        "travelM": 0.5,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0.8,
+        "multiplier": 1.25,
+        "confidence": "estimate",
+        "rationale": "Squat with estimated 0.50 m load travel and 80% work-equivalent body mass. A zero added load still includes rising body mass.",
+        "assistance": false
+      }
+    },
+    "Leg Press": {
+      "muscle": "Quads",
+      "roles": {
+        "primary": [
+          "Quads",
+          "Glutes"
+        ],
+        "secondary": [
+          "Adductors"
+        ]
+      },
+      "volume": {
+        "travelM": 0.5,
+        "forceRatio": 0.7071,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.8839,
+        "confidence": "calibrate",
+        "rationale": "Assumes 45-degree plate-loaded sled, 0.50 m rail travel: gravity component sin(45 degrees) = 0.7071. Seated body stays supported. Excludes unknown sled tare/friction; horizontal or selectorized presses require a different factor.",
+        "assistance": false
+      }
+    },
+    "Weighted Leg Extensions": {
+      "muscle": "Quads",
+      "volume": {
+        "travelM": 0.3,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.75,
+        "confidence": "calibrate",
+        "rationale": "Seated knee extension: both shins share one stack. Assumed 0.30 m effective load travel; cam/pad lever changes joint torque and needs calibration.",
+        "assistance": false
+      }
+    },
+    "Machine Leg Extension": {
+      "muscle": "Quads",
+      "volume": {
+        "travelM": 0.3,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.75,
+        "confidence": "calibrate",
+        "rationale": "Seated knee extension: both shins share one stack. Assumed 0.30 m effective load travel; cam/pad lever changes joint torque and needs calibration.",
+        "assistance": false
+      }
+    },
+    "Hip Abduction": {
+      "muscle": "Glutes",
+      "volume": {
+        "travelM": 0.2,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.5,
+        "confidence": "calibrate",
+        "rationale": "Seated bilateral hip abduction against one stack; assumed 0.20 m effective stack/load travel. Pads act through levers/cams: displayed kg cannot establish hip torque without machine geometry.",
+        "assistance": false
+      }
+    },
+    "Hip Adduction": {
+      "muscle": "Adductors",
+      "volume": {
+        "travelM": 0.2,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.5,
+        "confidence": "calibrate",
+        "rationale": "Seated bilateral hip adduction against one stack; assumed 0.20 m effective load travel. Both legs share the stack; no doubling. Verify lever/cam ratio.",
+        "assistance": false
+      }
+    },
+    "Calf Raise Machine": {
+      "muscle": "Calves",
+      "volume": {
+        "travelM": 0.1,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0.95,
+        "multiplier": 0.25,
+        "confidence": "calibrate",
+        "rationale": "Assumes standing calf machine: only about 0.10 m rise, plus 95% body mass rising on the forefoot. Change bodyweight to 0 if this is a seated machine; verify machine leverage.",
+        "assistance": false
+      }
+    },
+    "Single Leg Calf Raise": {
+      "muscle": "Calves",
+      "volume": {
+        "travelM": 0.1,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0.95,
+        "multiplier": 0.25,
+        "confidence": "estimate",
+        "rationale": "Standing one-leg plantarflexion: estimated 0.10 m rise of 95% body mass plus one dumbbell. Total reps include both legs; body mass and load counted once per rep.",
+        "assistance": false
+      }
+    },
+    "Weighted Seated Calf Raise": {
+      "muscle": "Calves",
+      "volume": {
+        "travelM": 0.1,
+        "forceRatio": 0.7071,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.1768,
+        "confidence": "calibrate",
+        "rationale": "Retired alias for Leg Press Calf Raise in this project; assumed 45-degree sled and 0.10 m ankle-driven travel, no rising torso.",
+        "assistance": false
+      }
+    },
+    "Leg Press Calf Raise": {
+      "muscle": "Calves",
+      "volume": {
+        "travelM": 0.1,
+        "forceRatio": 0.7071,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 0.1768,
+        "confidence": "calibrate",
+        "rationale": "Same assumed 45-degree sled but ankle plantarflexion moves it only about 0.10 m, not a full leg-press stroke. Body remains supported; excludes unknown sled tare/friction.",
+        "assistance": false
+      }
+    },
+    "Captain's Chair Leg Raises": {
+      "muscle": "Core",
+      "volume": {
+        "travelM": 0.5,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0.16,
+        "multiplier": 1.25,
+        "confidence": "calibrate",
+        "rationale": "Supported trunk; legs rotate upward. Uses 16% work-equivalent body mass over a 0.50 m reference path, allowing for lower-limb mass and smaller leg-centre-of-mass rise. Bent knees reduce the work further.",
+        "assistance": false
+      }
+    },
+    "Cable Crunch": {
+      "muscle": "Core",
+      "volume": {
+        "travelM": 0.25,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0.1,
+        "multiplier": 0.625,
+        "confidence": "calibrate",
+        "rationale": "Kneeling trunk flexion, estimated 0.25 m cable travel; includes a small work-equivalent torso contribution (10% body mass). Verify pulley resistance and torso motion.",
+        "assistance": false
+      }
+    },
+    "Decline Crunch": {
+      "muscle": "Core",
+      "volume": {
+        "travelM": 0.2,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0.3,
+        "multiplier": 0.5,
+        "confidence": "calibrate",
+        "rationale": "Short trunk-flexion movement, estimated 0.20 m reference travel and 30% work-equivalent body mass. Decline angle and torso excursion need calibration.",
+        "assistance": false
+      }
+    },
+    "Leg Raise": {
+      "muscle": "Core",
+      "volume": {
+        "travelM": 0.6,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0.16,
+        "multiplier": 1.5,
+        "confidence": "calibrate",
+        "rationale": "Legs rotate against gravity while the trunk is supported/hanging. Estimated 0.60 m reference travel and 16% work-equivalent body mass; knee bend and pelvis movement change this substantially.",
+        "assistance": false
+      }
+    },
+    "Sit Up": {
+      "muscle": "Core",
+      "volume": {
+        "travelM": 0.4,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0.3,
+        "multiplier": 1,
+        "confidence": "calibrate",
+        "rationale": "Torso flexion/hip flexion: estimated 0.40 m reference travel with 30% work-equivalent body mass to account for supported lower body and smaller torso-centre-of-mass rise.",
+        "assistance": false
+      }
+    },
+    "Unknown": {
+      "volume": {
+        "travelM": 0.4,
+        "forceRatio": 1,
+        "loadCopies": 1,
+        "bodyweight": 0,
+        "multiplier": 1,
+        "confidence": "unidentified",
+        "rationale": "Movement and equipment are unknown. Excluded from adjusted volume until identified; sets and reps still count.",
+        "assistance": false
+      }
+    }
+  }
+}

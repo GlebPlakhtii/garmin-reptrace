@@ -20,22 +20,33 @@ def stage(tools, body, lines):
     )
     body = dict(body, requestId=identity)
     pending = tools.state.setdefault("pendingEdits", {})
-    if len(pending) >= 30:
-        for key in list(pending)[:-20]:
-            pending.pop(key)
-    pending[identity] = {
-        "body": body,
-        "preview": "\n".join(lines),
-        "status": "pending",
-        "turn": tools.request_id,
-        "expires": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(),
-    }
-    tools.save()
+    if identity not in pending:
+        if len(pending) >= 30:
+            for key in list(pending)[:-20]:
+                if pending[key].get("status") != "saving":
+                    pending.pop(key)
+        pending[identity] = {
+            "body": body,
+            "preview": "\n".join(lines),
+            "status": "pending",
+            "turn": tools.request_id,
+            "expires": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(),
+        }
+        tools.save()
+    draft = pending[identity]
+    status = draft["status"]
     return {
-        "saved": False,
+        "saved": status == "saved",
+        "status": status,
         "draftId": identity,
-        "preview": "\n".join(lines),
-        "next": "Owner must press Save in the Telegram preview. Nothing has changed yet.",
+        "preview": draft["preview"],
+        "next": (
+            "Owner must press Save in the Telegram preview. Nothing has changed yet."
+            if status == "pending"
+            else "This request already has status "
+            + status
+            + ". Read its current result before proposing further changes."
+        ),
     }
 
 
@@ -190,8 +201,12 @@ def draft_record(tools, a):
     if entity not in ("goal", "muscle", "progression", "recovery") or operation not in (
         "save",
         "delete",
+        "archive",
+        "restore",
     ):
         raise ValueError("Invalid record type or operation")
+    if operation in ("archive", "restore") and entity != "goal":
+        raise ValueError("Archive and restore apply only to goals")
     if operation == "save":
         if not isinstance(value, str) or len(value) > 6000:
             raise ValueError("Provide a JSON value (up to 6000 characters)")
@@ -225,7 +240,7 @@ def draft_record(tools, a):
             }[entity],
             {},
         ).get(key)
-    if operation == "delete" and before is None:
+    if operation in ("delete", "archive", "restore") and before is None:
         raise ValueError(
             "Saved record not found; recovery delete removes a manual override, restoring Garmin values"
         )

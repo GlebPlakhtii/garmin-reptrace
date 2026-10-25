@@ -11,7 +11,10 @@ services:
       - influxdb
     volumes:
       - ./garminconnect-tokens:/home/appuser/.garminconnect
+      - strength_web_data:/var/lib/form
     environment:
+      - STRENGTH_MUTATION_LOCK_PATH=/var/lib/form/strength-mutation.lock
+      - GARMIN_OPERATION_STATE_PATH=/var/lib/form/garmin-operations.sqlite
       - INFLUXDB_HOST=influxdb
       - INFLUXDB_PORT=8086
       - INFLUXDB_USERNAME=influxdb_user
@@ -33,6 +36,8 @@ services:
     ports:
       - '${WEB_BIND_IP:-127.0.0.1}:3001:3001'
     environment:
+      - STRENGTH_MUTATION_LOCK_PATH=/var/lib/form/strength-mutation.lock
+      - GARMIN_OPERATION_STATE_PATH=/var/lib/form/garmin-operations.sqlite
       - INFLUXDB_HOST=influxdb
       - INFLUXDB_PORT=8086
       - INFLUXDB_USERNAME=influxdb_user
@@ -66,6 +71,7 @@ services:
       - TELEGRAM_ALLOWED_USER_ID=${TELEGRAM_ALLOWED_USER_ID:-}
       - TELEGRAM_PAIRING_CODE=${TELEGRAM_PAIRING_CODE:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_TRANSCRIPTION_MODEL=${OPENAI_TRANSCRIPTION_MODEL:-gpt-transcribe}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-6-sol}
       - OPENAI_REASONING_EFFORT=${OPENAI_REASONING_EFFORT:-medium}
       - OPENAI_CHAT_MODEL=${OPENAI_CHAT_MODEL:-gpt-6-sol}

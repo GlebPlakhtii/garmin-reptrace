@@ -22,6 +22,18 @@ test('plateau flags require enough comparable sessions and a meaningful date spa
  assert.equal(plateauSignals(sets.slice(1),'2026-10-21')[0].status,'insufficient');
  assert.equal(plateauSignals(sets.map(s=>({...s,date:'2026-10-20'})),'2026-10-21')[0].status,'insufficient');
 });
+test('zero external loads cannot create comparable plateau sessions',()=>{
+ const sets=[80,0,0,0,0].map((weight,i)=>row(i,`2026-10-${String(1+i*5).padStart(2,'0')}`,weight,8));
+ const signal=plateauSignals(sets,'2026-10-25')[0];
+ assert.equal(signal.status,'insufficient');
+ assert.equal(signal.eligible,1);
+ assert.equal(signal.latest,80);
+ assert.equal(signal.lastDate,'2026-10-01');
+ const assisted=plateauSignals(sets.map(s=>({...s,exercise:'Assisted Pull Up'})),'2026-10-25')[0];
+ assert.equal(assisted.status,'progressing');
+ assert.equal(assisted.eligible,5);
+ assert.equal(assisted.latest,0);
+});
 test('workout comparison only pairs equal reps and keeps absent exercises unknown',()=>{
  const sets=[row(1,'2026-10-01'),row(2,'2026-10-02',85),row(2,'2026-10-02',100,1),row(1,'2026-10-01',15,10,{exercise:'Curl'})];
  const [bench,curl]=compareWorkouts({sets},'1','2');

@@ -1,3 +1,5 @@
+FROM node:22-bookworm-slim AS dashboard-runtime
+
 FROM ghcr.io/astral-sh/uv:0.6.17-python3.13-bookworm-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -8,6 +10,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update \
     && apt-get install --no-install-recommends -y fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
+
+COPY --from=dashboard-runtime /usr/local/bin/node /usr/local/bin/node
 
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md LICENSE NOTICE.md ./

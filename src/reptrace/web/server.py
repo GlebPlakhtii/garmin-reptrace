@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 from reptrace.garmin.workouts import GarminWorkouts
 from reptrace.storage.reader import DatabaseReader
 from reptrace.storage.state import WebState, Conflict, revision
+from reptrace.storage.coordination import StrengthBusy, strength_lock
 from reptrace.training.planning import build_next_sessions
 from reptrace.exports.plans import render_plan
 from reptrace.exports.sessions import export_sessions, MIME
@@ -321,13 +322,14 @@ def build_payload(
 
 
 class DataStore:
-    def __init__(self, factory=make_client, ttl=60, state_store=None):
+    def __init__(self, factory=make_client, ttl=60, state_store=None, snapshot_timeout=1):
         self.factory = factory
         self.ttl = ttl
         self.lock = threading.Lock()
         self.cached = None
         self.expires = 0
         self.state_store = state_store
+        self.snapshot_timeout = snapshot_timeout
 
     def attach_metadata(self, result):
         if self.state_store:
@@ -358,7 +360,8 @@ class DataStore:
         return result
 
     def full_export(self):
-        with self.lock:
+        # Always acquire the process lock before cache/state locks, matching writers.
+        with strength_lock(timeout=self.snapshot_timeout), self.lock:
             client, query = self.factory()
             try:
                 base = {
@@ -409,12 +412,21 @@ class DataStore:
                 self.attach_metadata(result)
                 if self.state_store:
                     records.update(self.state_store.export_records())
-                return export_sessions(result, full=True, source_records=records)
             finally:
                 client.close()
+        # Workbook rendering uses the captured snapshot and need not hold up writers.
+        return export_sessions(result, full=True, source_records=records)
 
     def get(self, force=False):
         with self.lock:
+            if (
+                not force
+                and self.cached is not None
+                and time.monotonic() < self.expires
+            ):
+                return self.cached
+        with strength_lock(timeout=self.snapshot_timeout), self.lock:
+            # A concurrent reader may have refreshed while this request waited.
             if (
                 not force
                 and self.cached is not None
@@ -483,13 +495,22 @@ GARMIN_WORKOUTS = GarminWorkouts(
 )
 
 
+from reptrace.garmin.integration import GarminIntegration
+GARMIN_INTEGRATION = GarminIntegration(
+    os.getenv('GARMIN_OPERATION_STATE_PATH', '/var/lib/form/garmin-operations.sqlite'),
+    STATE, make_client, os.getenv('INFLUXDB_DATABASE', 'GarminStats'), ZONE,
+)
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
-    def send_body(self, body, kind, status=200, compressed=False):
+    def send_body(self, body, kind, status=200, compressed=False, retry_after=None):
         self.send_response(status)
         self.send_header("Content-Type", kind)
         self.send_header("Content-Length", str(len(body)))
+        if retry_after is not None:
+            self.send_header("Retry-After", str(retry_after))
         self.send_header(
             "Cache-Control", "no-store" if self.path.startswith("/api/") else "no-cache"
         )
@@ -502,6 +523,8 @@ class Handler(BaseHTTPRequestHandler):
         if compressed:
             self.send_header("Content-Encoding", "gzip")
             self.send_header("Vary", "Accept-Encoding")
+        if self.close_connection:
+            self.send_header("Connection", "close")
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
@@ -577,6 +600,15 @@ class Handler(BaseHTTPRequestHandler):
                 with STORE.lock:
                     STORE.expires = 0
             elif path == "/api/garmin-workouts":
+                operation = body.get("operation")
+                if not isinstance(operation, str) or not operation:
+                    raise ValueError("A Garmin operation is required")
+                if operation.startswith(('activity_', 'integration_', 'creation_', 'device_')):
+                    result = GARMIN_INTEGRATION.call(body)
+                    with STORE.lock:
+                        STORE.expires = 0
+                    self.send_body(json.dumps(result).encode(), 'application/json; charset=utf-8')
+                    return
                 plans = (
                     STORE.get(force=body.get("operation") in ("preview", "apply"))[0][
                         "nextSessions"
@@ -599,6 +631,11 @@ class Handler(BaseHTTPRequestHandler):
                     STORE.expires = 0
             self.send_body(
                 json.dumps(result).encode(), "application/json; charset=utf-8"
+            )
+        except StrengthBusy as error:
+            self.send_body(
+                json.dumps({"error": str(error)}).encode(), "application/json", 503,
+                retry_after=1,
             )
         except Conflict as error:
             self.send_body(
@@ -626,6 +663,26 @@ class Handler(BaseHTTPRequestHandler):
             return
         url = urlsplit(self.path)
         path = url.path
+        if path == "/api/garmin-operations":
+            from reptrace.garmin.recovery import read_operations
+
+            try:
+                params = parse_qs(url.query, keep_blank_values=True)
+                identities = params.get("id", [])
+                if len(identities) > 1:
+                    raise ValueError("Choose one operation")
+                result = read_operations(GARMIN_INTEGRATION.journal, identities[0] if identities else None)
+                self.send_body(json.dumps(result).encode(), "application/json; charset=utf-8")
+            except ValueError as error:
+                self.send_body(json.dumps({"error": str(error)}).encode(), "application/json", 400)
+            except Exception:
+                self.send_body(b'{"error":"Operation history is temporarily unavailable."}', "application/json", 503)
+            return
+        if path == "/training/exercise_catalog.json":
+            from importlib.resources import files
+
+            self.send_body(files("reptrace.training").joinpath("exercise_catalog.json").read_bytes(), "application/json; charset=utf-8")
+            return
         if path == "/api/sessions.xlsx":
             try:
                 params = parse_qs(url.query)
@@ -655,6 +712,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 if self.command != "HEAD":
                     self.wfile.write(body)
+            except StrengthBusy as error:
+                self.send_body(
+                    str(error).encode(), "text/plain; charset=utf-8", 503,
+                    retry_after=1,
+                )
             except ValueError as error:
                 self.send_body(str(error).encode(), "text/plain; charset=utf-8", 400)
             except Exception:
@@ -679,6 +741,11 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Choose upper1, upper2, lower1 or lower2")
                 body = render_plan(plan, int(params.get("page", ["0"])[0]))
                 self.send_body(body, "image/png")
+            except StrengthBusy as error:
+                self.send_body(
+                    str(error).encode(), "text/plain; charset=utf-8", 503,
+                    retry_after=1,
+                )
             except ValueError as error:
                 self.send_body(str(error).encode(), "text/plain", 400)
             except Exception:
@@ -708,6 +775,11 @@ class Handler(BaseHTTPRequestHandler):
                         "application/json; charset=utf-8",
                         compressed=accepts_gzip,
                     )
+            except StrengthBusy as error:
+                self.send_body(
+                    json.dumps({"error": str(error)}).encode(),
+                    "application/json; charset=utf-8", 503, retry_after=1,
+                )
             except Exception as error:
                 logging.error("Training data request failed: %s", type(error).__name__)
                 self.send_body(
@@ -722,6 +794,7 @@ class Handler(BaseHTTPRequestHandler):
             "/theme.js": ("theme.js", "text/javascript"),
             "/app.js": ("app.js", "text/javascript"),
             "/model.mjs": ("model.mjs", "text/javascript"),
+            "/recovery.mjs": ("recovery.mjs", "text/javascript"),
             "/muscle-map.mjs": ("muscle-map.mjs", "text/javascript"),
             "/styles.css": ("styles.css", "text/css"),
             "/favicon.svg": ("favicon.svg", "image/svg+xml"),

@@ -69,3 +69,43 @@ node --test tests/frontend/test_web_model.mjs
 Unit tests are grouped by feature under `tests/unit/`. Cross-feature fixtures use
 explicit `tests.unit.…` imports. Integration tests are outside unittest discovery
 and must be invoked with an explicitly configured development database.
+
+## Telegram dashboard calculations
+
+Install Node.js 22+ when running the bot outside Docker. Its dashboard tools
+execute the existing browser calculation module through a fixed stdin/stdout
+adapter; there is still no frontend build step. Docker includes the Node binary.
+See [Telegram tools](telegram-tools.md) for supported reads, previews and exports.
+
+Run the separate-process Garmin/collector checks with an isolated development
+InfluxDB and temporary state paths:
+
+```bash
+run_state=$(mktemp -d)
+INFLUXDB_HOST=127.0.0.1 INFLUXDB_PORT=18087 \
+  WEB_STATE_PATH="$run_state/state.sqlite" \
+  GARMIN_WORKOUT_STATE_PATH="$run_state/garmin.sqlite" \
+  PYTHONPATH=src:. .venv/bin/python tests/integration/garmin_coordination.py
+```
+
+It creates/drops a unique database and exercises actual Influx writes with
+synthetic Garmin responses, a separate collector process, stale batches,
+unresolved-operation protection, local crash recovery and reviewed reversal.
+It does not call Garmin or prove watch delivery.
+
+The same isolated endpoint and temporary state environment can run
+`tests/integration/coherent_snapshots.py`. It pauses a separate writer between
+set and workout-summary changes, checks bounded busy responses and preservation
+of the previous cache, and verifies consistent refresh/export results afterward.
+
+Exercise definitions live in `src/reptrace/training/exercise_catalog.json`.
+Keep changes there; Python compatibility imports and native JavaScript JSON
+modules consume it directly. The catalog parity test checks both runtimes. Include
+the JSON resource and `web/static/recovery.mjs` when verifying wheel contents.
+
+Operation recovery is under **More → Operation recovery** and linked from
+**Garmin workouts**. Inspect its empty, pending, completed and unavailable states,
+including with Influx unavailable. Status reads are local and work in the demo;
+the demo still rejects all continuation actions. The demo also isolates its
+operation journal and shared-lock path. Test continuation only with synthetic
+adapters and temporary storage unless a live external action is explicitly authorized.

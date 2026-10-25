@@ -13,6 +13,22 @@ test('compound sets credit every involved muscle once while weekly totals stay u
  assert.equal(group(data,'Core').secondary,2);assert.equal(group(data,'Core').primary,0);
  assert.deepEqual(group(data,'Glutes').exercises.map(e=>e.name),['Barbell Deadlift','Squat']);
 });
+test('supported movement variants count toward their muscles without renaming records',()=>{
+ const exercises=['Barbell Squat','Romanian Deadlift','Cable Lateral Raise','Assisted Pull Up','Chin Up','Dip','Assisted Dip','Rear Delt Fly','Overhead Cable Triceps Extension','Single Arm Cable Triceps Extension'];
+ const data=muscleWeekSummary(exercises.map(name=>set(name)),'2026-10-19');
+ assert.equal(data.sets,10);
+ assert.equal(data.exercises.length,10);
+ assert.equal(group(data,'Unassigned').sets,0);
+ assert.equal(group(data,'Quads').primary,1);
+ assert.equal(group(data,'Hamstrings').primary,1);
+ assert.equal(group(data,'Glutes').primary,2);
+ assert.equal(group(data,'Back').primary,2);
+ assert.equal(group(data,'Chest').primary,2);
+ assert.equal(group(data,'Triceps').primary,4);
+ assert.equal(group(data,'Shoulders').primary,2);
+ assert.equal(group(data,'Biceps').secondary,2);
+ assert.deepEqual(exerciseMuscles('Assisted Pull Up',{'Assisted Pull Up':'Unassigned'}),{primary:['Unassigned'],secondary:[]});
+});
 test('primary-only excludes assistance but keeps compound primary work and recorded totals',()=>{
  const data=muscleWeekSummary([set('Barbell Bench Press'),set('Barbell Deadlift')],'2026-10-19',{},false);
  assert.equal(group(data,'Triceps').sets,0);assert.equal(group(data,'Core').sets,0);

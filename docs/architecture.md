@@ -46,9 +46,14 @@ Existing `/var/lib/form` paths and Compose service/volume keys remain intentiona
 compatibility details. Changing a product name should not orphan a user's data.
 `FORM_API_URL` also remains supported as the bot's API setting.
 
-Web writes are serialized across workers. The collector does not share that lock;
-Influx replacement is not transactional, so cross-service overlap remains a known
-limit. Revisions and archives reduce risk but do not eliminate this race.
+Web writes, collector strength batches, and reviewed imports share a process lock.
+Dashboard refreshes and exports acquire the same lock while reading Influx and
+SQLite metadata, so they do not combine measurements from different stages of a
+live replacement. A refresh waits up to one second for the lock, then returns
+HTTP 503 with `Retry-After: 1`; the browser retains its previous complete snapshot.
+Valid cached reads remain available. Workbook formatting happens after the lock
+is released. This is coordination, not an Influx transaction: a process crash
+mid-replacement still requires the existing durable audit recovery.
 
 ## Design choices
 
@@ -60,6 +65,21 @@ charts, exports and reports can use consistent semantics.
 Historical source measurements are preserved. Display adjustments are labeled;
 unknown values stay unknown. The application separates planning, completed work,
 and external template updates rather than treating a suggestion as a performed set.
+
+`training/exercise_catalog.json` owns exercise aliases, primary and secondary
+muscles, bodyweight categories, and volume profiles. Python uses `training.catalog`;
+the browser and Node import the same JSON resource. The server exposes only the
+exact `/training/exercise_catalog.json` resource path. User overrides and recorded
+exercise identities retain their existing behavior.
+
+The Operation recovery page reads a sanitized local operation journal through
+`GET /api/garmin-operations`, independently of Influx or Garmin availability.
+Refreshing status makes no Garmin request. Continuing an operation requires an
+explicit review and uses its saved destination, selection and request identity.
+Unconfirmed previews cannot be started through recovery. Unknown remote results
+are reconciled by the existing workflows; a queued delivery is not proof of watch
+sync. The screen covers reviewed activity corrections and new workout creations,
+including those initiated through Telegram.
 
 ## Package layout and dependency boundaries
 
@@ -99,3 +119,9 @@ still substantial modules. This refactor establishes ownership and removes
 startup/import hazards; it does not rewrite their behavior or split transactional
 workflows across arbitrary files. The collector's legacy runtime configuration
 still uses module globals inside its dedicated package.
+
+Telegram dashboard queries use `coaching/dashboard.mjs`, a read-only adapter over
+`web/static/model.mjs`, invoked by Python with bounded options and a timeout.
+The Docker runtime includes Node.js 22 for these calculations. This avoids
+separate Python copies of chart, volume, record and goal formulas.
+[Telegram tool coverage](telegram-tools.md) maps the web features to the bot.

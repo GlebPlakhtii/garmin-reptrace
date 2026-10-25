@@ -57,6 +57,30 @@ def value(cell):
 
 
 class ExportTests(unittest.TestCase):
+    def test_supported_movement_variants_export_muscles_and_preserve_overrides(self):
+        source = data()
+        names = [
+            "Barbell Squat",
+            "Romanian Deadlift",
+            "Cable Lateral Raise",
+            "Assisted Pull Up",
+            "Dip",
+        ]
+        source["sets"] = [
+            row("c", "2026-10-20", exercise=name, id=f"c:{i}", order=i)
+            for i, name in enumerate(names, 1)
+        ]
+        source["muscleOverrides"] = {"Dip": "Chest"}
+        body, _, _ = export_sessions(source, session_id="c")
+        details, _ = cells(body, 2)
+        self.assertEqual(
+            [value(details[f"D{i}"]) for i in range(7, 12)],
+            ["Quads", "Hamstrings", "Shoulders", "Back", "Chest"],
+        )
+        self.assertEqual(
+            [value(details[f"C{i}"]) for i in range(7, 12)], names
+        )
+
     def test_workbook_has_typed_dates_numbers_filters_panes_and_summary_reconciles(
         self,
     ):

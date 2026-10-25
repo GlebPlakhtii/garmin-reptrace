@@ -5,6 +5,7 @@ import json, sys, tempfile, unittest, uuid
 from unittest.mock import Mock, patch
 
 from reptrace.coaching.assistant import TrainingTools
+from reptrace.coaching.edits import stage
 from reptrace.telegram.bot import Bot
 from reptrace.web.server import DataStore
 from reptrace.storage.state import (
@@ -111,6 +112,53 @@ class DraftTests(unittest.TestCase):
                 "propose_workout_change",
                 workout_args(set_changes=[change(set_id=key), change(set_id=key)]),
             )
+
+    def test_repeated_proposal_preserves_confirmation_and_expiry(self):
+        for status in ("pending", "saving", "saved", "cancelled", "undone"):
+            with self.subTest(status=status):
+                tools = self.tools()
+                tools.save = Mock()
+                body = {
+                    "action": "garmin_workout_creation",
+                    "operationId": "synthetic",
+                }
+                result = stage(tools, body, ["Reviewed synthetic workout"])
+                draft = tools.state["pendingEdits"][result["draftId"]]
+                draft.update(
+                    status=status,
+                    expires="2000-01-01T00:00:00+00:00",
+                    destination="both",
+                    selection=[1],
+                    result={"status": "partial"},
+                )
+                before = deepcopy(draft)
+                tools.save.reset_mock()
+                repeated = stage(tools, body, ["Regenerated preview"])
+                self.assertEqual(draft, before)
+                self.assertEqual(
+                    tools.state["pendingEdits"][result["draftId"]], before
+                )
+                self.assertEqual(repeated["status"], status)
+                self.assertEqual(repeated["saved"], status == "saved")
+                self.assertEqual(repeated["preview"], "Reviewed synthetic workout")
+                tools.save.assert_not_called()
+
+    def test_pending_save_survives_preview_retention(self):
+        tools = self.tools()
+        result = stage(
+            tools,
+            {"action": "garmin_workout_creation", "operationId": "original"},
+            ["Original"],
+        )
+        draft = tools.state["pendingEdits"][result["draftId"]]
+        draft["status"] = "saving"
+        for index in range(35):
+            stage(
+                tools,
+                {"action": "garmin_workout_creation", "operationId": str(index)},
+                ["Synthetic"],
+            )
+        self.assertIs(tools.state["pendingEdits"][result["draftId"]], draft)
 
     def test_delete_and_new_session_have_reviewable_payloads(self):
         t = self.tools()

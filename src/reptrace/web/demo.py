@@ -143,6 +143,8 @@ def main():
         # Set paths before importing the web module, whose stores initialize at import.
         os.environ["WEB_STATE_PATH"] = str(Path(directory) / "state.sqlite")
         os.environ["GARMIN_WORKOUT_STATE_PATH"] = str(Path(directory) / "garmin.sqlite")
+        os.environ["GARMIN_OPERATION_STATE_PATH"] = str(Path(directory) / "operations.sqlite")
+        os.environ["STRENGTH_MUTATION_LOCK_PATH"] = str(Path(directory) / "strength.lock")
         os.environ["USER_TIMEZONE"] = "UTC"
         from reptrace.web import server as web
 
@@ -153,6 +155,8 @@ def main():
 
         class DemoHandler(web.Handler):
             def do_POST(self):
+                # Rejected bodies remain unread; do not parse them as the next request.
+                self.close_connection = True
                 if self.local_request():
                     self.send_body(
                         b'{"error":"Read-only demo: saving and external integrations are disabled."}',

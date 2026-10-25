@@ -41,3 +41,13 @@ test('collapsed navigation keeps accessible labels',()=>{
   assert.match(a.element('#navigation').innerHTML,/aria-label="Overview"/);
   assert.match(a.element('#navigation').innerHTML,/aria-label="Log & edit"/);
 });
+
+test('busy mutation retains complete history and explains that an update is in progress',async()=>{
+  const a=app(async()=>({ok:false,status:503,headers:{get:name=>name==='Retry-After'?'1':null}}));
+  const data={sets:[],workouts:[]};a.state.data=data;
+  await a.load();
+  assert.equal(a.state.data,data);
+  assert.equal(a.state.refreshBusy,true);
+  assert.equal(a.element('#sync-status').textContent,'Update in progress');
+  assert.equal(a.element('#refresh').disabled,false);
+});

@@ -11,7 +11,22 @@ function app(storage=new Map()){
   vm.createContext(context);
   vm.runInContext(source.slice(source.indexOf('\n')+1,source.indexOf("document.addEventListener('click'"))+`\nthis.app={state,showWorkoutEditor,persistDraft,storedDrafts,removeStoredDraft};`,context);
   context.app.state.data={sets:[],workouts:[]};
-  return {...context.app,nodes};
+  const submitStart=source.indexOf("document.addEventListener('submit'");
+  const submitEnd=source.indexOf("$('#editor-dialog').addEventListener('click'",submitStart);
+  document.addEventListener=(_name,callback)=>context.submit=callback;
+  vm.runInContext(source.slice(submitStart,submitEnd),context);
+  async function rejectSave(status) {
+    context.rejectSave=async()=>{const error=new Error('Save rejected');error.status=status;throw error;};
+    vm.runInContext('saveAction=rejectSave;',context);
+    const controls=new Map();
+    const form={id:'workout-form',querySelector:key=>{
+      if(!controls.has(key))controls.set(key,{disabled:false,textContent:''});
+      return controls.get(key);
+    }};
+    await context.submit({target:form,preventDefault(){}});
+    return controls;
+  }
+  return {...context.app,nodes,rejectSave};
 }
 test('draft restores metadata, precise loads, and sets after a new app instance',()=>{
   const storage=new Map(),a=app(storage);a.showWorkoutEditor();
@@ -42,4 +57,32 @@ test('editor includes Unknown sets in original order and captures metadata for c
   assert.equal(a.state.draft.durationMinutes,45);
   assert.equal(a.state.draft.expectedMetadata.name,'Upper 1');
   assert.doesNotMatch(a.nodes.get('#editor-content').innerHTML,/readonly/);
+});
+
+test('authorization rejection leaves the retained workout editable and discardable',async()=>{
+  for(const status of [401,403]){
+    const a=app();a.showWorkoutEditor();
+    a.state.draft.sets[0].weight=40;a.state.draft.sets[0].reps=8;
+    const previousId=a.state.draft.requestId;
+    a.state.draft.pending={requestId:previousId,sets:structuredClone(a.state.draft.sets)};
+    const controls=await a.rejectSave(status);
+    assert.equal(a.state.draft.pending,undefined);
+    assert.notEqual(a.state.draft.requestId,previousId);
+    assert.equal(a.state.draft.sets[0].weight,40);
+    assert.equal(controls.get('fieldset').disabled,false);
+    assert.equal(controls.get('[data-action="discard-draft"]').disabled,false);
+    assert.equal(controls.get('[type="submit"]').textContent,'Save workout');
+  }
+});
+
+test('uncertain server failures retain the exact save identity and locked payload',async()=>{
+  const a=app();a.showWorkoutEditor();
+  const pending={requestId:a.state.draft.requestId,sets:structuredClone(a.state.draft.sets)};
+  a.state.draft.pending=pending;
+  const controls=await a.rejectSave(503);
+  assert.equal(a.state.draft.pending,pending);
+  assert.equal(a.state.draft.requestId,pending.requestId);
+  assert.equal(controls.get('fieldset').disabled,true);
+  assert.equal(controls.get('[type="submit"]').textContent,'Retry save');
+  assert.equal(controls.get('[type="submit"]').disabled,false);
 });

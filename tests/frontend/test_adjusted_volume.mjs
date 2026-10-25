@@ -49,6 +49,13 @@ test('calf press scores shorter travel than leg press and squat includes bodywei
  assert.equal(result[2].volume,800);
  assert.ok(result[1].volume<result[0].volume/4);
 });
+test('barbell squat uses the squat estimate while uncalibrated variants remain missing',()=>{
+ const rows=adjustedVolumeSets([row('Barbell Squat',100),row('Romanian Deadlift',60),row('Cable Lateral Raise',10)],[],{bodyWeightKg:80});
+ // (100 kg added load + 80 kg body mass × 0.8) × 10 reps × 1.25.
+ assert.equal(rows[0].volume,2050);
+ assert.equal(rows[1].volume,null);
+ assert.equal(rows[2].volume,null);
+});
 test('unidentified exercises and zero external resistance remain missing, not fabricated',()=>{
  const rows=adjustedVolumeSets([row('Unknown'),row('New Unidentified Movement',100),row('Curl'),row('Row'),row('Barbell Bench Press')],[],{bodyWeightKg:80});
  assert.ok(rows.every(s=>s.volume===null));

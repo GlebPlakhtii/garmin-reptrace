@@ -79,7 +79,6 @@
 [data-theme-style="editor"] .stat>strong,[data-theme-style="editor"] .stat-top .icon{color:var(--stat-accent)}
 [data-theme-style="editor"] .exercise-metrics>div:nth-child(1) strong,[data-theme-style="editor"] .weight-cell{color:var(--syntax-chart)}
 [data-theme-style="editor"] .exercise-metrics>div:nth-child(3) strong{color:var(--syntax-action)}
-[data-theme-style="editor"] .sets-panel td:nth-child(4){color:var(--syntax-number)}
 [data-theme-style="editor"] :is(.sparkline,.chart-key,.record-exercise,.table-date){color:var(--syntax-chart)}
 [data-theme-style="editor"] .progress-svg line{stroke:var(--syntax-border)}
 [data-theme-style="editor"] :is(.week-bar,.goal-track span){background:var(--syntax-chart)}
@@ -195,8 +194,8 @@
 [data-theme-style="editor"] .stat{background:linear-gradient(155deg,color-mix(in srgb,var(--stat-accent) 9%,transparent),transparent 85%);box-shadow:inset 0 3px var(--stat-accent)}
 [data-theme-style="editor"] .exercise-metrics>div:first-child strong,[data-theme-style="editor"] .weight-cell{color:var(--metric-weight)}
 [data-theme-style="editor"] .exercise-metrics>div:nth-child(3) strong{color:var(--metric-estimatedMax)}
-[data-theme-style="editor"] .sets-panel td:nth-child(4),.records-table td:nth-child(4){color:var(--metric-reps)}
-.sets-panel td:nth-child(5){color:var(--metric-volume)}
+.sets-panel .reps-cell,.records-table td:nth-child(4){color:var(--metric-reps)}
+.sets-panel .volume-cell{color:var(--metric-volume)}
 .records-table td:nth-child(5){color:var(--metric-estimatedMax)}
 .recovery-table :is(th,td):nth-child(2){color:var(--metric-sleepHours)}
 .recovery-table :is(th,td):nth-child(3){color:var(--metric-sleepScore)}
@@ -629,7 +628,7 @@
   .draft-table input{width:100%!important;min-width:0!important;min-height:44px;font-size:16px;box-sizing:border-box}
   .draft-table .draft-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:12px}
   .draft-actions .row-arrow{min-width:44px;min-height:44px;border:1px solid var(--line);border-radius:8px}
-  #workout-form .dialog-footer{position:sticky;bottom:0;background:var(--panel,var(--bg));padding:14px 20px;z-index:2;display:flex;justify-content:space-between;gap:12px}
+  #workout-form .dialog-footer{position:sticky;bottom:0;background:var(--white);padding:14px 20px;z-index:2;display:flex;justify-content:space-between;gap:12px}
 }
 .draft-resume{padding:20px;margin-bottom:20px}.draft-resume h2{font-size:20px;margin:0 0 8px}.draft-resume p{color:var(--muted)}.draft-resume .button{margin:4px 8px 4px 0}
 
@@ -672,3 +671,15 @@ summary:focus-visible,textarea:focus-visible{outline:3px solid var(--syntax-nav,
 .exercise-volume-controls { margin-bottom: 20px; gap: 20px; flex-wrap: wrap; }
 .exercise-volume-controls .segmented { flex-shrink: 0; }
 .exercise-volume-controls p { flex: 1; min-width: 260px; }
+
+/* Saved operations remain readable on phones and while the training DB is offline. */
+.operation-history{margin-top:24px}.operations-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:0 24px 24px}
+.operation-card{min-width:0;border:1px solid var(--line);border-radius:12px;padding:20px;background:var(--paper)}
+.operation-card-heading{display:flex;align-items:start;justify-content:space-between;gap:12px;flex-wrap:wrap}.operation-card h3{margin:0;font-size:17px;overflow-wrap:anywhere}
+.operation-status{font-size:11px;border:1px solid var(--line);border-radius:20px;padding:5px 9px;color:var(--muted)}.operation-status.needs-attention{color:var(--syntax-warning,var(--metric-volume));border-color:currentColor}
+.operation-progress{display:flex;gap:24px;flex-wrap:wrap;margin:20px 0}.operation-progress dt{font-size:12px;color:var(--muted)}.operation-progress dd{margin:5px 0 0;font-size:14px}
+.operation-items{list-style:none;padding:0;margin:18px 0}.operation-items li{display:grid;gap:5px;padding:10px 0;border-bottom:1px solid var(--line)}.operation-items span{font-size:12px;color:var(--muted)}
+.operation-card>p,.recovery-review-body>p{font-size:13px;line-height:1.6;overflow-wrap:anywhere}.operation-message{color:var(--metric-volume)}
+.recovery-review-body{padding:8px 30px 20px}.recovery-review-body h3{font-size:15px;margin-top:24px}.operation-preview{white-space:pre-wrap;overflow-wrap:anywhere;font-family:inherit;font-size:13px;line-height:1.7;background:var(--paper);border:1px solid var(--line);border-radius:9px;padding:16px;max-height:40vh;overflow:auto}
+.recovery-review .dialog-footer{background:var(--white);gap:12px;flex-wrap:wrap}.recovery-review .dialog-heading h2{overflow-wrap:anywhere}
+@media(max-width:760px){.operations-list{grid-template-columns:1fr;padding:0 16px 16px}.operation-card{padding:16px}.recovery-review-body{padding:8px 20px 16px}.recovery-review .dialog-footer .button{flex:1}}

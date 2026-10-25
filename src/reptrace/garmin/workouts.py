@@ -1104,6 +1104,29 @@ class GarminAdapter:
             api=True,
         )
 
+    def activity_sets(self, activity_id):
+        return self.client.get_activity_exercise_sets(identity(activity_id))
+
+    def update_activity_sets(self, activity_id, payload):
+        return self.client.garth.put("connectapi", f"/activity-service/activity/{identity(activity_id)}/exerciseSets", json=payload, api=True)
+
+    def create(self, payload):
+        return self.client.garth.post("connectapi", "/workout-service/workout", json=payload, api=True)
+
+    def devices(self):
+        return self.client.get_devices()
+
+    def device_messages(self):
+        return self.client.connectapi('/device-service/devicemessage/messages')
+
+    def deliver(self, workout_id, device_id, name):
+        workout_id, device_id = identity(workout_id), identity(device_id)
+        return self.client.garth.post("connectapi", "/device-service/devicemessage/messages", json=[{
+            "deviceId": device_id, "messageUrl": f"workout-service/workout/FIT/{workout_id}",
+            "messageType": "workouts", "groupName": None, "messageName": name,
+            "priority": 1, "fileType": "FIT", "metaDataId": workout_id,
+        }], api=True)
+
 
 class GarminWorkouts:
     def __init__(self, path, factory=GarminAdapter):
@@ -1114,10 +1137,14 @@ class GarminWorkouts:
     def connect(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         db = sqlite3.connect(self.path)
-        db.row_factory = sqlite3.Row
-        db.execute(
-            "CREATE TABLE IF NOT EXISTS updates(id TEXT PRIMARY KEY, created REAL, workout_id INTEGER, plan_type TEXT, plan_hash TEXT, before_json TEXT, after_json TEXT, preview_json TEXT, status TEXT)"
-        )
+        try:
+            db.row_factory = sqlite3.Row
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS updates(id TEXT PRIMARY KEY, created REAL, workout_id INTEGER, plan_type TEXT, plan_hash TEXT, before_json TEXT, after_json TEXT, preview_json TEXT, status TEXT)"
+            )
+        except BaseException:
+            db.close()
+            raise
         return db
 
     def call(self, body, plans):

@@ -70,7 +70,8 @@ MENU = {
 
 
 class TelegramError(RuntimeError):
-    def __init__(self, code, retry_after=5):
+    def __init__(self, code, retry_after=5, not_modified=False):
+        self.not_modified = not_modified
         super().__init__(f"Telegram request failed (status {code})")
         self.code = code
         self.retry_after = retry_after
@@ -119,7 +120,7 @@ class Telegram:
         self.last_send = {}
 
     def call(self, method, values, photo=None, document=None, filename="report.html"):
-        if method in ("sendPhoto", "sendMessage", "sendDocument"):
+        if method in ("sendPhoto", "sendMessage", "sendDocument", "sendRichMessage"):
             elapsed = time.monotonic() - self.last_send.get(values["chat_id"], 0)
             if elapsed < 1.1:
                 time.sleep(1.1 - elapsed)
@@ -169,13 +170,14 @@ class Telegram:
             except (ValueError, OSError):
                 details = {}
             raise TelegramError(
-                error.code, details.get("parameters", {}).get("retry_after", 5)
+                error.code, details.get("parameters", {}).get("retry_after", 5),
+                "message is not modified" in details.get("description", "").lower()
             ) from None
         except (OSError, ValueError):
             raise TelegramError("network") from None
         if not result.get("ok"):
             raise TelegramError(result.get("error_code", "unknown"))
-        if method in ("sendPhoto", "sendMessage", "sendDocument"):
+        if method in ("sendPhoto", "sendMessage", "sendDocument", "sendRichMessage"):
             self.last_send[values["chat_id"]] = time.monotonic()
         return result["result"]
 
@@ -196,6 +198,21 @@ class Telegram:
         return image, "image/png" if path.lower().endswith(
             ".png"
         ) else "image/webp" if path.lower().endswith(".webp") else "image/jpeg"
+
+    def download_voice(self, file_id):
+        from reptrace.telegram.voice import MAX_BYTES, VoiceError
+        info = self.call('getFile', {'file_id':file_id})
+        path = info.get('file_path','')
+        if not re.fullmatch(r'[A-Za-z0-9_./-]{1,300}',path) or '..' in path or info.get('file_size',0)>MAX_BYTES:
+            raise VoiceError('Invalid or oversized voice file. Send a new voice note.')
+        try:
+            with urllib.request.urlopen(self.base.replace('/bot','/file/bot',1)+path,timeout=45) as response:
+                audio=response.read(MAX_BYTES+1)
+        except OSError:
+            raise VoiceError('Voice download failed. Retry the same note.') from None
+        if not audio or len(audio)>MAX_BYTES:
+            raise VoiceError('Voice file is empty or exceeds 20 MB.')
+        return audio
 
 
 class Bot:
@@ -287,9 +304,21 @@ class Bot:
         if sender != self.owner:
             return
         chat_id = chat["id"]
+        if not callback and message.get('voice'):
+            from reptrace.telegram.voice import handle
+            handle(self, message, str(update['update_id']))
+            return
+        if not callback and text == "/carddemo":
+            from reptrace.telegram.card_demo import CardDemo
+            CardDemo(self.api, str(self.path) + ".demo.sqlite3", self.owner).send("request-" + str(update["update_id"]))
+            return
         if callback:
             self.api.call("answerCallbackQuery", {"callback_query_id": callback["id"]})
             command = callback.get("data", "")
+            if command.startswith("demo:"):
+                from reptrace.telegram.card_demo import CardDemo
+                CardDemo(self.api, str(self.path) + ".demo.sqlite3", self.owner).callback(callback)
+                return
             if command.startswith("food:save:") or command.startswith("food:cancel:"):
                 self.handle_food_review(command)
                 return
@@ -656,7 +685,7 @@ class Bot:
         # Store file references, never image bytes; resume incomplete albums after restart.
         album["messages"][identity] = {
             k: message[k]
-            for k in ("photo", "document", "caption", "date", "message_id")
+            for k in ("photo", "document", "caption", "date", "message_id", "reply_to_message")
             if k in message
         }
         album["ready_at"] = (self.clock() + timedelta(seconds=2)).isoformat()
@@ -677,6 +706,9 @@ class Bot:
                     if m.get("caption", "").strip()
                 )
             )
+            if hasattr(self, "runtime"):
+                self.runtime.check()
+                self.runtime.album_keys.append(key)
             self.handle_images(
                 description,
                 album["command_id"],
@@ -804,15 +836,24 @@ class Bot:
                     self.send_food_preview(identity)
                 return True
             prior = None
+            expected_entry = None
             if revision_of:
-                revision_of, prior = self.current_food_draft(revision_of)
-                if (
+                if revision_of in self.state.get("pendingFood", {}):
+                    revision_of, prior = self.current_food_draft(revision_of)
+                if prior is None or prior["status"] == "saved":
+                    entry_id = prior["body"]["id"] if prior else revision_of
+                    entries = self.fetch_data().get("foodLog", []) if self.fetch_data else []
+                    expected_entry = next((r for r in entries if r["id"] == entry_id), None)
+                    if expected_entry is None:
+                        raise ValueError("Saved food entry is unavailable or deleted. Read nutrition history again.")
+                    prior = {"body": expected_entry, "sources": [], "status": "saved"}
+                elif (
                     prior["status"] != "pending"
                     or datetime.fromisoformat(prior["expires"]) < self.clock()
                 ):
-                    raise ValueError(
-                        "Only an unsaved, active estimate can be revised. This preview was saved, cancelled or expired. Send the food again for a new estimate."
-                    )
+                    raise ValueError("This preview was cancelled or expired. Create a new preview.")
+                else:
+                    expected_entry = prior["body"].get("expectedEntry")
             sources = list(prior.get("sources", [])) if prior else []
             for attachment in attachments if attachments is not None else [message]:
                 photo = attachment.get("photo") or []
@@ -895,7 +936,12 @@ class Bot:
                 "status": "pending",
                 "sources": sources,
             }
-            if prior:
+            if expected_entry is not None:
+                pending[identity]["body"].update(
+                    action="update", id=expected_entry["id"],
+                    requestId=identity, expectedEntry=expected_entry,
+                )
+            if prior and prior["status"] == "pending":
                 prior.update(status="superseded", replacement=identity)
                 prior.pop("sources", None)
             self.save()
@@ -920,12 +966,18 @@ class Bot:
             return True
 
     def send_food_preview(self, identity):
+        self.reference_context = {"foodPreviewId": identity}
         pending = self.state["pendingFood"][identity]
         estimate = pending["body"]
         portions = ", ".join(
             i["name"] + " (" + i["portion"] + ")" for i in estimate["items"]
         )
         body = f"🍽 ESTIMATE · NOT SAVED\n{estimate['name']}\n{estimate['calories']:g} kcal · Protein {estimate['protein_g']:g} g · Carbs {estimate['carbs_g']:g} g · Fat {estimate['fat_g']:g} g"
+        if estimate.get("action") == "update":
+            old = estimate["expectedEntry"]
+            body = ("EDIT SAVED FOOD · NOT SAVED\n"
+                    f"Replaces {old['name']} at {old['time']}: "
+                    f"{old['calories']:g} kcal → {estimate['calories']:g} kcal\n" + body)
         if portions:
             body += "\n" + portions
         if estimate["note"]:
@@ -1038,7 +1090,7 @@ class Bot:
                             [
                                 {
                                     "text": "Delete entry",
-                                    "callback_data": "food:delete:" + identity,
+                                    "callback_data": "food:delete:" + pending["body"]["id"],
                                 }
                             ]
                         ]
@@ -1047,6 +1099,11 @@ class Bot:
             )
 
     def deliver(self, key, text=None):
+        if self.state.get("cancelledReports", {}).get(key):
+            return
+        self.reference_context = {"reportId": key}
+        if self.state.get("cancelledReports", {}).get(key):
+            return
         outbox = self.state.setdefault("reportOutbox", {})
         if key not in outbox:
             if text is None:
@@ -1074,6 +1131,8 @@ class Bot:
         status="unavailable",
         report_type="session",
     ):
+        if self.state.get("cancelledReports", {}).get(key):
+            return
         outbox = self.state.setdefault("reportOutbox", {})
         if key not in outbox:
             if facts is None:
@@ -1094,6 +1153,7 @@ class Bot:
             self.deliver(key)
             return
         facts = entry["facts"]
+        self.reference_context = {"reportId": key, "workout": facts.get("workout"), "reportType": entry.get("reportType")}
         monthly = entry.get("reportType") == "monthly"
         workout = (
             {"name": "Monthly review " + facts["month"], "date": facts["to"]}
@@ -1231,6 +1291,8 @@ class Bot:
         self.last_report_check = stamp
         data = self.fetch_data()
         local = now.astimezone(self.zone)
+        if hasattr(self, "runtime") and self.runtime.interactive_pending():
+            return
         if self.weekly_enabled:
             due = datetime.combine(monday(local.date()), self.weekly_time, self.zone)
             started = datetime.fromisoformat(self.state["reportsStartedAt"])
@@ -1247,6 +1309,8 @@ class Bot:
                     self.deliver(key, weekly_text(weekly_facts(data, local.date())))
                 self.state["weeklyLastSent"] = period
                 self.finish_report(key)
+        if hasattr(self, "runtime") and self.runtime.interactive_pending():
+            return
         if self.monthly_enabled:
             due = datetime.combine(
                 local.date().replace(day=1), self.weekly_time, self.zone
@@ -1309,6 +1373,9 @@ class Bot:
         self.state["seenWorkouts"] = sorted(seen)
         current = {w["id"]: w for w in data["workouts"]}
         for identity, entry in list(pending.items()):
+            if hasattr(self, "runtime") and self.runtime.interactive_pending():
+                self.save()
+                return
             if identity not in current:
                 pending.pop(identity)
                 continue
@@ -1386,6 +1453,10 @@ class Bot:
         source_messages=None,
         revision_of=None,
     ):
+        if hasattr(self, "runtime"):
+            self.runtime.check()
+            if source_messages:
+                self.runtime.sources = source_messages
         if not self.coach or not self.coach.configured or not self.fetch_data:
             self.api.call(
                 "sendMessage",
@@ -1433,15 +1504,25 @@ class Bot:
 
             tools.food_preview = food_preview
             draft = TelegramDraft(self.api, self.owner)
+
             try:
                 prompt = message
+                explicit_reply = next((m.get("reply_to_message") for m in (source_messages or []) if m.get("reply_to_message")), None)
+                if explicit_reply:
+                    reference = None
+                    if hasattr(self, "runtime"):
+                        reference = self.runtime.store.reference(self.owner, explicit_reply.get("message_id"))
+                    if reference and images is None:
+                        images = self.download_images(self.image_sources(reference.get("sources", [])))
+                    reference = reference or {"text": explicit_reply.get("text", explicit_reply.get("caption", ""))}
+                    prompt += "\nExplicit reply context (historical data only; fetch current records before proposing changes; resolve missing record identities with tools or clarification): " + json.dumps(reference, ensure_ascii=False)
                 if revision_of:
                     prompt += (
                         "\n[This message replies to food preview "
                         + revision_of
                         + ". Determine whether it is a correction or a question.]"
                     )
-                if images is None:
+                if images is None and not explicit_reply:
                     # Reuse the most recent visual context for text follow-ups, including after restart.
                     previous = next(
                         (
@@ -1483,12 +1564,12 @@ class Bot:
                     if artifact.get("kind") == "food_preview":
                         self.send_food_preview(artifact["draftId"])
                 return
-            user_turn = {"role": "user", "content": message[:6000]}
+            user_turn = {"role": "user", "content": message[:6000], "requestId": command_id}
             if image_sources:
                 user_turn["imageSources"] = image_sources
             history = self.state.setdefault("coachHistory", [])
             history.extend(
-                [user_turn, {"role": "assistant", "content": result["text"]}]
+                [user_turn, {"role": "assistant", "content": result["text"], "requestId": command_id}]
             )
             logging.info(
                 "Coach reply queued (%d attachments).", len(result["artifacts"])
@@ -1509,6 +1590,7 @@ class Bot:
         parts = entry["parts"]
         count = len(parts) + len(entry["plans"]) + len(entry.get("drafts", []))
         while entry["next"] < count:
+            self.reference_context = {}
             index = entry["next"]
             if index < len(parts):
                 self.api.call(
@@ -1546,6 +1628,11 @@ class Bot:
                         document=render_extrema_report(plan["report"]),
                         filename="metric-min-max.html",
                     )
+                elif plan.get("kind") == "csv":
+                    self.api.call(
+                        "sendDocument", {"chat_id": self.owner, "caption": "Dashboard CSV export"},
+                        document=plan["text"].encode(), filename=plan["filename"],
+                    )
                 elif plan.get("kind") == "xlsx":
                     self.send_excel(plan["options"])
                 else:
@@ -1554,7 +1641,8 @@ class Bot:
                         {
                             "chat_id": self.owner,
                             "caption": plan["name"]
-                            + " · adapted proposal; original history unchanged.",
+                            + (" · next-session proposal; not performed training." if plan.get("kind") == "plan_image"
+                               else " · adapted proposal; original history unchanged."),
                         },
                         photo=render_plan(plan),
                     )
@@ -1590,6 +1678,7 @@ class Bot:
         )
 
     def send_edit_preview(self, identity):
+        self.reference_context = {"workoutPreviewId": identity}
         draft = self.state.get("pendingEdits", {}).get(identity)
         if not draft:
             return
@@ -1601,6 +1690,15 @@ class Bot:
                 ]
             ]
         }
+        if draft.get('body', {}).get('action') == 'garmin_workout_creation':
+            buttons = {'inline_keyboard': [[{'text':'Save and send all','callback_data':'edit:save:'+identity}],
+                *[[{'text':'Save & send '+name[:35], 'callback_data':'edit:session'+str(i)+':'+identity}] for i,name in enumerate(draft.get('sessions',[]))],
+                [{'text':'Cancel','callback_data':'edit:cancel:'+identity}]]}
+        if draft.get('body', {}).get('action') == 'garmin_activity_correction':
+            buttons = {'inline_keyboard': [
+                [{'text': 'Save to RepTrace + Garmin', 'callback_data': 'edit:save:' + identity}],
+                [{'text': 'RepTrace only', 'callback_data': 'edit:local:' + identity},
+                 {'text': 'Cancel', 'callback_data': 'edit:cancel:' + identity}]]}
         if (
             draft.get("body", {}).get("action") == "garmin_workout_update"
             and draft.get("garminPreview")
@@ -1645,6 +1743,46 @@ class Bot:
                 values["reply_markup"] = buttons
             self.api.call("sendMessage", values)
 
+    def handle_integration_edit(self, action, identity, draft):
+        try:
+            operation_id = draft['body']['operationId']
+            if action == 'cancel':
+                self.garmin({'operation': 'integration_cancel', 'requestId': operation_id})
+                draft['status'] = 'cancelled'
+                self.save()
+                self.api.call('sendMessage', {'chat_id': self.owner, 'text': 'Change cancelled.'})
+                return
+            creation = draft['body']['action'] == 'garmin_workout_creation'
+            if (action not in ('save', 'local') and not (creation and action.startswith('session') and action[7:].isdigit())) or draft['status'] == 'cancelled':
+                raise ValueError('Request a new reviewed preview for this action.')
+            destination = 'local' if action == 'local' else 'both'
+            if draft.get('destination', destination) != destination:
+                raise ValueError('The confirmed destination cannot change during retry.')
+            if draft['status'] == 'pending' and datetime.fromisoformat(draft['expires']) < self.clock():
+                raise ValueError('Preview expired; request a fresh preview.')
+            selection = [int(action[7:])] if creation and action.startswith('session') else None
+            if creation and 'selection' in draft and draft['selection'] != selection:
+                raise ValueError('Confirmed session selection cannot change during retry.')
+            if creation: draft['selection'] = selection
+            draft.update(destination=destination, status='saving')
+            self.save()
+            result = self.garmin({'operation':'creation_apply','requestId':operation_id,'selection':selection} if creation else {'operation': 'integration_apply', 'requestId': operation_id, 'destination': destination})
+            draft.update(status='saved' if result['status'] == 'done' else 'saving', result=result)
+            self.save()
+            text = ('\n'.join(i['payload']['workoutName'] + ': saved in Garmin Connect' + ('; delivery requested—sync your watch.' if i['delivery']=='requested' else '; delivery '+i['delivery']+'.') if i['creation']=='saved' else i['payload']['workoutName']+': creation '+i['creation'] for n,i in enumerate(result['items']) if n in result['selection']) if creation else 'Garmin: ' + result['remoteStatus'] + ' / RepTrace: ' + result['localStatus'] + '.')
+            values = {'chat_id': self.owner, 'text': text}
+            if result['status'] != 'done':
+                values['text'] += (' Local revision conflict; request a fresh reviewed correction.' if result.get('localError') == 'revision_conflict' else '')
+                values['text'] += (' Operation remains unresolved. Retry reconciles creation/readback and retries explicitly rejected delivery using existing workout IDs.' if creation else ' Operation remains unresolved. Retry checks readback and only finishes an eligible local step; it never blindly repeats Garmin writes.')
+                values['reply_markup'] = {'inline_keyboard': [[{'text': 'Reconcile / retry unfinished step', 'callback_data': 'edit:'+action+':'+identity}]]}
+            else:
+                self.state['coachHistory'] = []
+                self.state.pop('coachSummary', None)
+                self.save()
+            self.api.call('sendMessage', values)
+        except (ValueError, RuntimeError) as error:
+            self.api.call('sendMessage', {'chat_id': self.owner, 'text': str(error)})
+
     def handle_edit(self, command):
         parts = command.split(":")
         if len(parts) != 3:
@@ -1659,6 +1797,9 @@ class Bot:
                     "text": "This preview is no longer available. Ask for a new one.",
                 },
             )
+            return
+        if draft.get('body', {}).get('action') in ('garmin_activity_correction', 'garmin_workout_creation'):
+            self.handle_integration_edit(action, identity, draft)
             return
         status = draft["status"]
         if action == "cancel":
@@ -1692,6 +1833,8 @@ class Bot:
                             }
                         )
                         if draft["body"]["action"] == "garmin_workout_update"
+                        else self.food_action(dict(draft["body"], action="delete"))
+                        if draft["body"]["action"] == "food_delete"
                         else save_action(draft["body"])
                     )
                     draft.update(status="saved", result=result)
@@ -1709,14 +1852,18 @@ class Bot:
                         ]
                     ]
                 }
+                if draft["body"]["action"] in ("food_delete", "undo_workout", "undo_metadata"):
+                    buttons = None
                 if draft["body"]["action"] == "garmin_workout_update":
                     text = (
-                        "Garmin workout updated and verified, including the reviewed exercise additions."
+                        "Garmin workout updated and verified with the reviewed structure and targets."
                         if draft.get("garminPreview", {}).get("fullEdit")
                         else "Garmin workout weights and reps updated and verified. Exercise order and rest steps were preserved."
                     )
                     buttons = None
             elif action == "undo":
+                if draft["body"]["action"] in ("food_delete", "undo_workout", "undo_metadata"):
+                    raise ValueError("This action has no direct undo button. Read change history.")
                 if draft["body"]["action"] == "garmin_workout_update":
                     raise ValueError(
                         "To change this Garmin workout again, request a new preview."
@@ -2003,16 +2150,18 @@ def main():
         },
         {"command": "monthly", "description": "Monthly HTML review; optional YYYY-MM"},
     ]
+    from reptrace.telegram.conversation import Runtime
+    runtime = Runtime(bot)
+    threading.Thread(target=runtime.worker, daemon=True, name="telegram-execution").start()
     registered = False
     while True:
         try:
             if not registered:
-                me = bot.api.call("getMe", {})
-                bot.api.call("setMyCommands", {"commands": commands})
+                me = runtime.raw.call("getMe", {})
+                runtime.raw.call("setMyCommands", {"commands": commands})
                 registered = True
                 logging.info("Bot @%s is connected.", me.get("username", "configured"))
-            bot.run_reports()
-            bot.poll_once()
+            runtime.poll()
         except TelegramError as error:
             logging.warning(
                 "%s; retrying. A 409 means another poller or webhook is active.", error

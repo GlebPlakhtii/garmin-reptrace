@@ -12,7 +12,10 @@ import sqlite3
 import threading
 import uuid
 
+from reptrace.storage.coordination import protected_activity, strength_lock
+
 from reptrace.training.equipment import validate_equipment
+from reptrace.training.catalog import MUSCLE_GROUPS
 from reptrace.training.strength import BODYWEIGHT_CATEGORIES, EXERCISE_NAME_ALIASES
 
 MEASUREMENTS = (
@@ -31,20 +34,7 @@ TAGS = (
     "SetIndex",
     "User_ID",
 )
-GROUPS = {
-    "Chest",
-    "Back",
-    "Shoulders",
-    "Biceps",
-    "Triceps",
-    "Quads",
-    "Hamstrings",
-    "Glutes",
-    "Calves",
-    "Core",
-    "Adductors",
-    "Unassigned",
-}
+GROUPS = set(MUSCLE_GROUPS)
 
 
 class Conflict(ValueError):
@@ -267,6 +257,11 @@ def plan_workout(body, before, catalog, database, zone, request_id):
         if match:
             exercise = match
         category, code = catalog.get(exercise, ("MANUAL", exercise))
+        if 'garminCategory' in row or 'garminExerciseCode' in row:
+            from reptrace.garmin.integration import exercise_mapping
+            category, code = exercise_mapping(row.get('garminCategory'), row.get('garminExerciseCode'))
+            code = code or category
+
         weight = numeric(row.get("weight"), "Load (kg)")
         reps = numeric(row.get("reps"), "Repetitions", True, 500)
         if weight is None and reps is None and not old:
@@ -447,6 +442,52 @@ def plan_workout(body, before, catalog, database, zone, request_id):
     return identity, points, name
 
 
+def validate_volume_settings(settings):
+    if not isinstance(settings, dict):
+        raise ValueError("Invalid volume settings")
+    weight = numeric(
+        settings.get("bodyWeightKg"), "Fallback body weight", False, 500
+    )
+    if weight is not None and weight <= 0:
+        raise ValueError("Body weight must be greater than zero")
+    mappings = settings.get("exercises")
+    if not isinstance(mappings, dict) or len(mappings) > 1000:
+        raise ValueError("Invalid exercise volume factors")
+    checked = {}
+    for name, rule in mappings.items():
+        name = text(name, "Exercise", 120)
+        if not isinstance(rule, dict):
+            raise ValueError("Invalid exercise volume factor")
+        multiplier = numeric(
+            rule.get("multiplier"), "Volume multiplier", False, 10
+        )
+        fraction = numeric(
+            rule.get("bodyweight"), "Bodyweight fraction", False, 1
+        )
+        if multiplier is None or multiplier <= 0 or fraction is None:
+            raise ValueError(
+                "Enter a positive multiplier and a bodyweight fraction from 0 to 1"
+            )
+        assistance = rule.get("assistance", False)
+        if not isinstance(assistance, bool):
+            raise ValueError("Invalid assistance flag")
+        checked[name] = {
+            "multiplier": multiplier,
+            "bodyweight": fraction,
+            "assistance": assistance,
+        }
+        if "reviewed" in rule:
+            if not isinstance(rule["reviewed"], bool):
+                raise ValueError("Invalid volume review flag")
+            checked[name]["reviewed"] = rule["reviewed"]
+        if "loadCopies" in rule:
+            copies = numeric(rule["loadCopies"], "Load copies", True, 2)
+            if copies not in (1, 2):
+                raise ValueError("Load copies must be 1 or 2")
+            checked[name]["loadCopies"] = copies
+    return {"bodyWeightKg": weight, "exercises": checked}
+
+
 class WebState:
     def __init__(self, path):
         self.path = Path(path)
@@ -473,11 +514,11 @@ class WebState:
     def connect(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         c = sqlite3.connect(self.path, timeout=30)
-        c.row_factory = sqlite3.Row
-        c.executescript(
-            "CREATE TABLE IF NOT EXISTS goals(id TEXT PRIMARY KEY,data TEXT NOT NULL,archived INTEGER DEFAULT 0); CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS audit(id TEXT PRIMARY KEY,kind TEXT,request TEXT,before_data TEXT,after_data TEXT,response TEXT,status TEXT,created TEXT); CREATE TABLE IF NOT EXISTS food_log(id TEXT PRIMARY KEY,data TEXT NOT NULL,created TEXT NOT NULL);"
-        )
         try:
+            c.row_factory = sqlite3.Row
+            c.executescript(
+                "CREATE TABLE IF NOT EXISTS goals(id TEXT PRIMARY KEY,data TEXT NOT NULL,archived INTEGER DEFAULT 0); CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS audit(id TEXT PRIMARY KEY,kind TEXT,request TEXT,before_data TEXT,after_data TEXT,response TEXT,status TEXT,created TEXT); CREATE TABLE IF NOT EXISTS food_log(id TEXT PRIMARY KEY,data TEXT NOT NULL,created TEXT NOT NULL);"
+            )
             with c:
                 yield c
         finally:
@@ -538,6 +579,12 @@ class WebState:
                 ),
                 "progressionRules": settings.get("progression", {}),
                 "edits": edits,
+                "metadataEdits": [
+                    {"id": r["id"], "created": r["created"], "undone": r["status"] == "undone"}
+                    for r in c.execute(
+                        "SELECT id,created,status FROM audit WHERE kind='metadata_change' AND status IN ('done','undone') ORDER BY rowid DESC LIMIT 30"
+                    )
+                ],
                 "recoveryOverrides": settings.get("recovery", {}),
             }
 
@@ -574,17 +621,52 @@ class WebState:
         except (ValueError, TypeError, AttributeError):
             raise ValueError("A valid food entry identity is required")
         action = body.get("action")
-        with self.lock, self.mutation_lock(), self.connect() as c:
+        with strength_lock(), self.lock, self.mutation_lock(), self.connect() as c:
             if action == "delete":
+                response = {"ok": True, "id": identity}
+                if "requestId" in body:
+                    try:
+                        request_id = str(uuid.UUID(body["requestId"]))
+                    except (ValueError, TypeError, AttributeError):
+                        raise ValueError("Invalid deletion request identity")
+                    request = json.dumps(body, sort_keys=True, allow_nan=False)
+                    prior = c.execute("SELECT request,response FROM audit WHERE id=?", (request_id,)).fetchone()
+                    if prior:
+                        if prior["request"] != request:
+                            raise ValueError("Deletion request identity was already used")
+                        return json.loads(prior["response"])
+                    current = c.execute("SELECT data FROM food_log WHERE id=?", (identity,)).fetchone()
+                    before = json.loads(current["data"]) if current else None
+                    if before is None or body.get("expectedEntry") != before:
+                        raise ValueError("Food entry changed or was deleted. Request a new preview.")
+                    c.execute(
+                        "INSERT INTO audit VALUES(?,?,?,?,?,?,?,?)",
+                        (request_id, "food_delete", request, json.dumps(before), "null",
+                         json.dumps(response), "done", datetime.now(timezone.utc).isoformat()),
+                    )
                 c.execute("DELETE FROM food_log WHERE id=?", (identity,))
-                return {"ok": True, "id": identity}
-            if action != "add":
+                return response
+            if action not in ("add", "update"):
                 raise ValueError("Invalid food action")
             existing = c.execute(
                 "SELECT data FROM food_log WHERE id=?", (identity,)
             ).fetchone()
-            if existing:
-                return {"ok": True, "entry": json.loads(existing["data"])}
+            before = json.loads(existing["data"]) if existing else None
+            if action == "update":
+                try:
+                    request_id = str(uuid.UUID(body.get("requestId", "")))
+                except (ValueError, TypeError, AttributeError):
+                    raise ValueError("A valid correction request identity is required")
+                request = json.dumps(body, sort_keys=True, allow_nan=False)
+                prior = c.execute("SELECT request,response FROM audit WHERE id=?", (request_id,)).fetchone()
+                if prior:
+                    if prior["request"] != request:
+                        raise ValueError("Correction request identity was already used")
+                    return json.loads(prior["response"])
+                if before is None or body.get("expectedEntry") != before:
+                    raise ValueError("Food entry changed or was deleted. Read it again and create a new preview.")
+            elif existing:
+                return {"ok": True, "entry": before}
             name = text(body.get("name"), "Food name", 120)
             description = body.get("description", "")
             note = body.get("note", "")
@@ -640,11 +722,23 @@ class WebState:
                 "note": note,
                 "source": "telegram-estimate",
             }
-            c.execute(
-                "INSERT INTO food_log VALUES(?,?,?)",
-                (identity, json.dumps(entry, ensure_ascii=False), stamp.isoformat()),
-            )
-            return {"ok": True, "entry": entry}
+            response = {"ok": True, "entry": entry}
+            if action == "update":
+                entry["source"] = before.get("source", entry["source"])
+                c.execute("UPDATE food_log SET data=? WHERE id=?",
+                          (json.dumps(entry, ensure_ascii=False), identity))
+                c.execute(
+                    "INSERT INTO audit(id,kind,request,before_data,after_data,response,status,created) VALUES(?,?,?,?,?,?,?,?)",
+                    (request_id, "food_update", request, json.dumps(before),
+                     json.dumps(entry), json.dumps(response), "complete",
+                     datetime.now(timezone.utc).isoformat()),
+                )
+            else:
+                c.execute(
+                    "INSERT INTO food_log VALUES(?,?,?)",
+                    (identity, json.dumps(entry, ensure_ascii=False), stamp.isoformat()),
+                )
+            return response
 
     def apply(self, body, factory, database, zone):
         if not isinstance(body, dict):
@@ -655,7 +749,7 @@ class WebState:
             raise ValueError("A valid request identity is required")
         kind = body.get("action")
         request = json.dumps(body, sort_keys=True, allow_nan=False)
-        with self.lock, self.mutation_lock(), self.connect() as c:
+        with strength_lock(), self.lock, self.mutation_lock(), self.connect() as c:
             old = c.execute("SELECT * FROM audit WHERE id=?", (request_id,)).fetchone()
             if old:
                 if old["request"] != request:
@@ -762,55 +856,10 @@ class WebState:
                     raise Conflict(
                         "Settings changed. Refresh before saving volume factors."
                     )
-                settings = body.get("settings")
-                if not isinstance(settings, dict):
-                    raise ValueError("Invalid volume settings")
-                weight = numeric(
-                    settings.get("bodyWeightKg"), "Fallback body weight", False, 500
-                )
-                if weight is not None and weight <= 0:
-                    raise ValueError("Body weight must be greater than zero")
-                mappings = settings.get("exercises")
-                if not isinstance(mappings, dict) or len(mappings) > 1000:
-                    raise ValueError("Invalid exercise volume factors")
-                checked = {}
-                for name, rule in mappings.items():
-                    name = text(name, "Exercise", 120)
-                    if not isinstance(rule, dict):
-                        raise ValueError("Invalid exercise volume factor")
-                    multiplier = numeric(
-                        rule.get("multiplier"), "Volume multiplier", False, 10
-                    )
-                    fraction = numeric(
-                        rule.get("bodyweight"), "Bodyweight fraction", False, 1
-                    )
-                    if multiplier is None or multiplier <= 0 or fraction is None:
-                        raise ValueError(
-                            "Enter a positive multiplier and a bodyweight fraction from 0 to 1"
-                        )
-                    assistance = rule.get("assistance", False)
-                    if not isinstance(assistance, bool):
-                        raise ValueError("Invalid assistance flag")
-                    checked[name] = {
-                        "multiplier": multiplier,
-                        "bodyweight": fraction,
-                        "assistance": assistance,
-                    }
-                    if "reviewed" in rule:
-                        if not isinstance(rule["reviewed"], bool):
-                            raise ValueError("Invalid volume review flag")
-                        checked[name]["reviewed"] = rule["reviewed"]
-                    if "loadCopies" in rule:
-                        copies = numeric(rule["loadCopies"], "Load copies", True, 2)
-                        if copies not in (1, 2):
-                            raise ValueError("Load copies must be 1 or 2")
-                        checked[name]["loadCopies"] = copies
+                settings = validate_volume_settings(body.get("settings"))
                 c.execute(
                     "INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                    (
-                        "volume",
-                        json.dumps({"bodyWeightKg": weight, "exercises": checked}),
-                    ),
+                    ("volume", json.dumps(settings)),
                 )
             elif kind == "muscle_save":
                 mappings = body.get("mappings")
@@ -880,10 +929,18 @@ class WebState:
                 operation = body.get("operation")
                 key = body.get("key")
                 value = body.get("value")
-                if operation not in ("save", "delete"):
+                if operation not in ("save", "delete", "archive", "restore"):
                     raise ValueError("Invalid operation")
+                if operation in ("archive", "restore") and entity != "goal":
+                    raise ValueError("Archive and restore apply only to goals")
                 if entity == "goal":
-                    if operation == "delete":
+                    if operation in ("archive", "restore"):
+                        if not c.execute(
+                            "UPDATE goals SET archived=? WHERE id=?",
+                            (int(operation == "archive"), key),
+                        ).rowcount:
+                            raise ValueError("Goal not found")
+                    elif operation == "delete":
                         if not c.execute(
                             "DELETE FROM goals WHERE id=?", (key,)
                         ).rowcount:
@@ -924,6 +981,15 @@ class WebState:
                             "INSERT INTO goals VALUES(?,?,0) ON CONFLICT(id) DO UPDATE SET data=excluded.data,archived=0",
                             (identity, json.dumps(data)),
                         )
+                elif entity in ("equipment", "volume"):
+                    if operation != "save":
+                        raise ValueError("Settings require a save operation")
+                    checked = (validate_equipment(value) if entity == "equipment"
+                               else validate_volume_settings(value))
+                    c.execute(
+                        "INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                        (entity, json.dumps(checked)),
+                    )
                 elif entity in ("muscle", "progression", "recovery"):
                     setting = {
                         "muscle": "muscles",
@@ -1064,6 +1130,10 @@ class WebState:
                             raise ValueError("This edit is not available to undo")
                         previous = json.loads(prior["response"])
                         identity = previous["sessionId"]
+                        if protected_activity(identity, local_body=body):
+                            raise Conflict(
+                                "Resolve the pending Garmin operation before editing this workout."
+                            )
                         before = snapshot(query, identity)
                         after = json.loads(prior["before_data"])
                         if snapshot_revision(before) != snapshot_revision(
@@ -1075,6 +1145,10 @@ class WebState:
                         name = previous["name"]
                     else:
                         identity = body.get("sessionId") or "web-" + request_id
+                        if protected_activity(identity, local_body=body):
+                            raise Conflict(
+                                "Resolve the pending Garmin operation before editing this workout."
+                            )
                         before = snapshot(query, identity)
                         if body.get("sessionId") and not before:
                             raise ValueError("Workout not found")

@@ -15,6 +15,9 @@ from reptrace.training.strength import (
 )
 
 
+from reptrace.storage.coordination import strength_writer, protected_activity
+
+@strength_writer
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--start-date", type=date.fromisoformat)
@@ -88,7 +91,7 @@ def main():
     garmin.login(os.getenv("TOKEN_DIR", "~/.garminconnect"))
     total = 0
     for index, workout in enumerate(workouts):
-        if workout["Activity_ID"] < 0 or has_manual_strength_details(
+        if workout["Activity_ID"] < 0 or protected_activity(workout["Activity_ID"]) or has_manual_strength_details(
             client, version, workout["Activity_ID"]
         ):
             print(
