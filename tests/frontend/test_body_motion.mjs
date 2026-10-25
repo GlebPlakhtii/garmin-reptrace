@@ -23,7 +23,7 @@ function fixture() {
   return {animations,muscles,figure,root};
 }
 
-test('map updates reveal each muscle from its center, then grow and smoothly return to normal',()=>{
+test('changed muscles reveal and grow as one continuous motion, then smoothly return to normal',()=>{
   const f=fixture(),motion=createBodyMotion();
   motion.update(f.root,{route:'#volume'});
   assert.equal(f.animations.length,4);
@@ -31,16 +31,17 @@ test('map updates reveal each muscle from its center, then grow and smoothly ret
   assert.equal(entry.node,f.muscles[0].pieces[0]);
   assert.equal(entry.frames[0].clipPath,'circle(0% at 50% 50%) fill-box');
   assert.equal(entry.frames[1].clipPath,'circle(75% at 50% 50%) fill-box');
-  assert.equal(entry.options.duration,320);
+  assert.equal(entry.options.duration,520);
   const {frames,options}=f.animations[1];
   assert.equal(frames[0].d,'path("M0 0 Q5 10 10 0 Z")');
   assert.equal(frames[1].d,'path("M0 0 Q5 12 10 0 Z")');
-  assert.equal(frames[2].d,frames[1].d,'finish growing before returning');
   assert.equal(frames.at(-1).d,frames[0].d,'always end at the original size');
-  assert.deepEqual(frames.map(frame=>frame.offset),[0,.42,.52,1]);
-  assert.equal(options.duration,900);
-  assert.ok(options.delay>=entry.options.duration,'finish the center reveal before expansion starts');
-  assert.deepEqual(f.animations[3].frames,frames,'all muscles grow together');
+  assert.deepEqual(frames.map(frame=>frame.offset),[0,.5,1],'no separate hold or second growth stage');
+  assert.equal(options.duration,1200);
+  assert.equal(options.delay,entry.options.delay,'reveal and growth start together without a pause');
+  assert.equal(entry.options.easing,frames[0].easing,'reveal and growth use the same smooth acceleration');
+  assert.deepEqual(f.animations[3].frames,frames,'changed groups use the same grow-and-return cycle');
+  assert.equal(f.animations[2].options.delay,18,'restore the original gentle stagger');
   assert.ok(frames.every(frame=>!('clipPath' in frame)&&!('transform' in frame)),'size pulse grows from the normal geometry');
   motion.update(f.root,{route:'#volume'});
   assert.equal(f.animations.length,4,'unchanged rendering does not pulse again');
@@ -76,7 +77,8 @@ test('selection keeps its center-out highlight and size animation without replay
   assert.ok(f.animations.slice(2).every(animation=>animation.node===f.muscles[1].shapes[0]));
   f.muscles[0].dataset.bodyState='primary|9|0';
   motion.update(f.root,{route:'#volume'});
-  assert.equal(f.animations.length,8,'data update reveals and pulses all groups');
+  assert.equal(f.animations.length,6,'only the group with changed data reappears');
+  assert.equal(f.animations[4].node,f.muscles[0].pieces[0]);
   motion.finish();
 });
 
@@ -92,15 +94,16 @@ test('mirrored lobes reveal independently around their own centers',()=>{
   motion.finish();
 });
 
-test('a change in one body map pulses all visible body maps',()=>{
+test('a change in one group does not restart unchanged muscles or comparison maps',()=>{
   const a=fixture(),b=fixture(),motion=createBodyMotion();
   b.figure.dataset.bodyKey='body-change-front';
   const root={querySelectorAll:()=>[a.figure,b.figure]};
   motion.update(root,{route:'#volume',reduced:true});
   a.muscles[0].dataset.bodyState='primary|12|0';
   motion.update(root,{route:'#volume'});
-  assert.equal(a.animations.length,4);
-  assert.equal(b.animations.length,4);
+  assert.equal(a.animations.length,2);
+  assert.equal(a.animations[0].node,a.muscles[0].pieces[0]);
+  assert.equal(b.animations.length,0);
   motion.finish();
 });
 
@@ -117,6 +120,25 @@ test('reduced motion, detached artwork and route changes cancel pulses',()=>{
   motion.update({querySelectorAll:()=>[]},{route:'#overview'});
   f.muscles[0].isConnected=true;
   motion.update(f.root,{route:'#volume'});
-  assert.equal(f.animations.length,8);
+  assert.equal(f.animations.length,4,'returning to unchanged data does not replay appearance');
+  f.muscles[0].dataset.bodyState='primary|12|0';
+  motion.update(f.root,{route:'#volume'});
+  assert.equal(f.animations.length,6,'new data still animates after returning');
   motion.finish();
+});
+
+test('identical replacement DOM and returning to the tab do not replay appearance',()=>{
+ const old=fixture(),fresh=fixture(),motion=createBodyMotion();
+ motion.update(old.root,{route:'#volume'});
+ old.muscles.forEach(node=>node.isConnected=false);
+ motion.update(fresh.root,{route:'#volume'});
+ assert.equal(fresh.animations.length,0,'same data in new DOM stays still');
+ assert.ok(old.animations.every(animation=>animation.cancelled));
+ motion.update({querySelectorAll:()=>[]},{route:'#exercises'});
+ motion.update(fresh.root,{route:'#volume'});
+ assert.equal(fresh.animations.length,0,'tab switch alone stays still');
+ fresh.figure.dataset.bodyContext='2026-10-12|0';
+ motion.update(fresh.root,{route:'#volume'});
+ assert.equal(fresh.animations.length,4,'changed week still reveals updated muscles');
+ motion.finish();
 });

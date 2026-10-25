@@ -29,58 +29,58 @@ export function createBodyMotion() {
   const pulse = (node, delay = 0) => {
     const rest = `path("${node.dataset.muscleRest}")`, flexed = `path("${node.dataset.muscleFlexed}")`;
     play(node, 'shape', [
-      {d: rest, offset: 0, easing: 'cubic-bezier(.4, 0, .2, 1)'},
-      {d: flexed, offset: .42},
-      {d: flexed, offset: .52, easing: 'cubic-bezier(.4, 0, .2, 1)'},
+      {d: rest, offset: 0, easing: 'cubic-bezier(.4, 0, .4, 1)'},
+      {d: flexed, offset: .5, easing: 'cubic-bezier(.4, 0, .4, 1)'},
       {d: rest, offset: 1},
-    ], {duration: 900, delay, easing: 'linear'});
+    ], {duration: 1200, delay, easing: 'linear'});
   };
   function update(root, {route = '', reduced = false} = {}) {
     for (const [node, channels] of running) if (!node.isConnected) {
       for (const animation of channels.values()) animation.cancel();
       running.delete(node);
     }
-    if (route !== previousRoute) { finish(); previous = new Map(); previousRoute = route; hovered = null; }
+    const routeChanged = route !== previousRoute;
+    if (routeChanged) { finish(); previousRoute = route; hovered = null; }
     if (reduced) finish();
-    const next = new Map(), selections = [];
-    let changed = false;
+    // Keep the last displayed data when the map is unmounted, so returning
+    // to the tab or replacing DOM with identical data does not replay appearance.
+    const next = new Map(previous), updates = [], selections = [];
     artwork = [];
     for (const figure of root.querySelectorAll('.body-map-svg')) {
       const context = figure.dataset.bodyContext;
       const muscles = [...figure.querySelectorAll('.body-muscle-art[data-body-muscle]')];
       artwork.push(...muscles);
-      for (const node of muscles) {
+      muscles.forEach((node, index) => {
         const key = `${figure.dataset.bodyKey}:${node.dataset.bodyMuscle}`;
         const state = {context, value: node.dataset.bodyState, selected: node.dataset.bodySelected === 'true'};
         const before = previous.get(key);
         next.set(key, state);
-        if (!before || before.context !== context || before.value !== state.value) changed = true;
-        if (before && state.selected && !before.selected) selections.push(node);
-      }
+        if (!before || before.context !== context || before.value !== state.value) {
+          updates.push({node, delay: Math.min(index * 18, 110)});
+        } else if (!routeChanged && state.selected && !before.selected) selections.push(node);
+      });
     }
-    changed ||= previous.size !== next.size;
     previous = next;
     setHovered(hovered);
     if (reduced) return;
-    if (changed) {
-      for (const node of artwork) {
-        // Reveal each left/right lobe from its own centre, then swell and settle.
-        for (const piece of node.querySelectorAll('.body-muscle-piece')) play(piece, 'entry', [
-          {clipPath: 'circle(0% at 50% 50%) fill-box'},
-          {clipPath: 'circle(75% at 50% 50%) fill-box'},
-        ], {duration: 320});
-        for (const path of node.querySelectorAll('[data-muscle-rest]')) pulse(path, 320);
-      }
-    } else {
-      // Selection animates just the chosen group; its border remains fixed.
-      for (const node of selections) {
-        for (const path of node.querySelectorAll('[data-muscle-rest]')) pulse(path);
-        for (const glow of node.querySelectorAll('.muscle-selection-glow')) play(glow, 'selection', [
-          {clipPath: 'circle(0% at 50% 50%) fill-box', opacity: 0},
-          {clipPath: 'circle(45% at 50% 50%) fill-box', opacity: .24, offset: .45},
-          {clipPath: 'circle(75% at 50% 50%) fill-box', opacity: .16},
-        ]);
-      }
+    for (const {node, delay} of updates) {
+      // Keep the original reveal duration/stagger, overlapping the smooth growth
+      // instead of starting a second animation stage after appearance finishes.
+      // Only groups whose displayed data changed disappear and reappear.
+      for (const piece of node.querySelectorAll('.body-muscle-piece')) play(piece, 'entry', [
+        {clipPath: 'circle(0% at 50% 50%) fill-box'},
+        {clipPath: 'circle(75% at 50% 50%) fill-box'},
+      ], {duration: 520, delay, easing: 'cubic-bezier(.4, 0, .4, 1)'});
+      for (const path of node.querySelectorAll('[data-muscle-rest]')) pulse(path, delay);
+    }
+    // Selection keeps its own animation without replaying appearance on the map.
+    for (const node of selections) {
+      for (const path of node.querySelectorAll('[data-muscle-rest]')) pulse(path);
+      for (const glow of node.querySelectorAll('.muscle-selection-glow')) play(glow, 'selection', [
+        {clipPath: 'circle(0% at 50% 50%) fill-box', opacity: 0},
+        {clipPath: 'circle(45% at 50% 50%) fill-box', opacity: .24, offset: .45},
+        {clipPath: 'circle(75% at 50% 50%) fill-box', opacity: .16},
+      ]);
     }
   }
   return {update, finish, setHovered};
