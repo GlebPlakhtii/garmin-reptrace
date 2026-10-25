@@ -45,13 +45,13 @@ export function createBodyMotion() {
           ], Math.min(index * 18, 110));
         } else if (state.selected && !before.selected) {
           // A centre-out wash travels over the newly selected muscle; the
-          // underlying anatomy stays fully visible and never changes size.
+          // underlying anatomy stays fully visible, with a persistent selected tint.
           for (const piece of node.querySelectorAll('.body-muscle-piece')) {
             const glow = piece.querySelector('.muscle-selection-glow');
             if (glow) play(glow, [
               {clipPath: 'circle(0% at 50% 50%) fill-box', opacity: 0},
-              {clipPath: 'circle(45% at 50% 50%) fill-box', opacity: .12, offset: .45},
-              {clipPath: 'circle(75% at 50% 50%) fill-box', opacity: 0},
+              {clipPath: 'circle(45% at 50% 50%) fill-box', opacity: .24, offset: .45},
+              {clipPath: 'circle(75% at 50% 50%) fill-box', opacity: .16},
             ]);
           }
         }

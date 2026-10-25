@@ -7,7 +7,18 @@
 
 /* Hover a region or its group button to illuminate matching front/back artwork. */
 .body-map-svg .body-muscle-art[data-body-hovered] .muscle-hover-wash {
-  opacity: .1;
+  opacity: 1;
+  fill-opacity: .22;
+  stroke: #d6f3ff;
+  stroke-width: 1.4;
+  stroke-opacity: .9;
+  stroke-linejoin: round;
+}
+.body-map-svg .body-muscle-art[data-body-selected="true"] .muscle-selection-glow {
+  opacity: .16;
+}
+.body-map-svg .body-muscle-art[data-body-selected="true"][data-body-hovered] .muscle-hover-wash {
+  fill-opacity: .12;
 }
 .body-map-svg .body-muscle-art .muscle-hover-wash,
 .body-map-svg .body-muscle-art .muscle-selection-glow {
@@ -20,7 +31,7 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .body-map-svg .body-muscle-art .muscle-hover-wash {
-    transition: opacity 180ms var(--motion-ease);
+    transition: opacity 140ms var(--motion-ease);
   }
   :is(button, .button, .icon-button, .text-link, .topnav-link,
       .topnav-more-toggle, .nav-item, summary, input, select, textarea,
@@ -106,4 +117,14 @@
     --motion-control: 0ms;
     --motion-feedback: 0ms;
   }
+}
+
+/* Dark ink keeps the same crisp feedback on the light body map. */
+[data-theme="daylight"] .body-map-svg .body-muscle-art[data-body-hovered] .muscle-hover-wash {
+  fill: #236b89;
+  fill-opacity: .16;
+  stroke: #236b89;
+}
+[data-theme="daylight"] .body-map-svg .body-muscle-art .muscle-selection-glow {
+  fill: #236b89;
 }

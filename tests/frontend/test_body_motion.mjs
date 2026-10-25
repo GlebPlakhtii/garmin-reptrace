@@ -46,7 +46,7 @@ test('selection reveals a centre-out overlay only, preserving the visible muscle
   assert.equal(f.animations.length, 1);
   assert.equal(f.animations[0].node, f.muscles[0].pieces[0].glow);
   assert.equal(f.animations[0].frames[0].clipPath, 'circle(0% at 50% 50%) fill-box');
-  assert.equal(f.animations[0].frames.at(-1).opacity, 0);
+  assert.equal(f.animations[0].frames.at(-1).opacity, .16, 'selection remains highlighted after the reveal');
   assert.ok(f.animations[0].frames.every(frame => !('transform' in frame)));
   motion.update(f.root, {route: '#volume'});
   assert.equal(f.animations.length, 1);
