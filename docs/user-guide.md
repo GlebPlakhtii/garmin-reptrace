@@ -15,7 +15,7 @@ Select a calendar day to open a session.
 
 Exercises exposes loads, reps, estimated 1RM and volume with underlying set logs.
 Choose **Est. 1RM** in the existing exercise graph’s metric selector to see
-estimates per workout. In the combined view, choose one exercise from the dropdown;
+estimates per workout. Choose a muscle group and exercise from the existing exercise list;
 estimates from different lifts are never combined. Select a bar to open its workout.
 Date and record-source filters apply. Estimates require positive recorded load and
 1–10 reps; missing or unsupported estimates stay blank. These are Epley estimates,

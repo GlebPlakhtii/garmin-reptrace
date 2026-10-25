@@ -230,8 +230,10 @@ test('estimated 1RM is an option in the existing graphs, never a separate panel'
  for(const set of a.state.data.sets)set.estimatedMax=set.weight>0?set.weight*(1+set.reps/30):null;
  const view=a.current(),daily=a.exercisesPage(view);
  assert.match(daily,/data-metric="estimatedMax"[^>]*aria-pressed="true"/);
- assert.match(daily,/Exercise for estimated 1RM/);
- assert.equal((daily.match(/id="progress-chart"/g)||[]).length,1);
+ assert.match(daily,/Select an exercise from the list/);
+ assert.doesNotMatch(daily,/strength-exercise/);
+ a.state.selected='Barbell Bench Press';
+ assert.equal((a.exercisesPage(a.current()).match(/id="progress-chart"/g)||[]).length,1);
  assert.doesNotMatch(daily,/strength-history-panel|Estimated 1RM over time/);
  a.state.volumeMetric='estimatedMax';
  const weekly=a.volumeHistoryPanel(view);
@@ -240,6 +242,6 @@ test('estimated 1RM is an option in the existing graphs, never a separate panel'
  assert.match(weekly,/weekly kg estimated 1RM history/);
  assert.doesNotMatch(weekly,/data-volume-group="all"/);
  assert.match(weekly,/Different exercises are never added or averaged/);
- a.state.strengthExercise='Pull Up';
- assert.match(a.progressPanel(view.selected),/No recorded 1RM estimates/);
+ a.state.selected='Pull Up';
+ assert.match(a.progressPanel(a.current().selected),/No recorded 1RM estimates/);
 });
