@@ -10,11 +10,11 @@ export function createBodyMotion() {
     for (const animation of running.values()) animation.cancel();
     running.clear();
   };
-  const play = (node, frames, delay = 0) => {
+  const play = (node, frames, delay = 0, duration = 520) => {
     if (typeof node.animate !== 'function') return;
     running.get(node)?.cancel();
     const animation = node.animate(frames, {
-      duration: 520, delay, easing: 'cubic-bezier(.22, .8, .3, 1)', fill: 'backwards',
+      duration, delay, easing: 'cubic-bezier(.22, .8, .3, 1)', fill: 'backwards',
     });
     running.set(node, animation);
     const clean = () => { if (running.get(node) === animation) running.delete(node); };
@@ -29,6 +29,7 @@ export function createBodyMotion() {
     for (const figure of root.querySelectorAll('.body-map-svg')) {
       const context = figure.dataset.bodyContext;
       const muscles = [...figure.querySelectorAll('.body-muscle-art[data-body-muscle]')];
+      const controls = [...figure.querySelectorAll('.body-muscle[data-map-muscle]')];
       artwork.push(...muscles);
       muscles.forEach((node, index) => {
         const key = `${figure.dataset.bodyKey}:${node.dataset.bodyMuscle}`;
@@ -36,6 +37,17 @@ export function createBodyMotion() {
         const before = previous.get(key);
         next.set(key, state);
         if (reduced) return;
+        if (before && before.selected !== state.selected) {
+          const control = controls.find(control => control.dataset.mapMuscle === node.dataset.bodyMuscle);
+          const paths = [...node.querySelectorAll('[data-muscle-rest]'), ...(control?.querySelectorAll('[data-muscle-rest]') || [])];
+          for (const path of paths) {
+            const rest = path.dataset.muscleRest, flexed = path.dataset.muscleFlexed;
+            play(path, [
+              {d: `path("${before.selected ? flexed : rest}")`},
+              {d: `path("${state.selected ? flexed : rest}")`},
+            ], 0, 340);
+          }
+        }
         if (!before || before.context !== context || before.value !== state.value) {
           // Each anatomical piece has its own centre, including the mirrored
           // left/right muscles. Never clip the whole bilateral group or its controls.

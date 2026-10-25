@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {exerciseMuscles,muscleMapWeeks,muscleWeekSummary,muscleWeekComparison,filterData} from '../../src/reptrace/web/static/model.mjs';
-import {renderMuscleMap,muscleChange} from '../../src/reptrace/web/static/muscle-map.mjs';
+import {renderMuscleMap,muscleChange,flexMusclePath} from '../../src/reptrace/web/static/muscle-map.mjs';
 const set=(exercise,extra={})=>({exercise,date:'2026-10-23',sessionId:'a',weight:80,reps:10,volume:800,source:'garmin',...extra});
 const group=(summary,name)=>summary.groups.find(g=>g.name===name);
 
@@ -12,7 +12,7 @@ test('visible selection follows muscle lobes while seamless click regions remain
   const art=svg.split(`data-body-muscle="${name}"`)[1].split('data-body-muscle=')[0];
   const shapes=[...art.matchAll(/<path class="muscle-surface"[^>]* d="([^"]+)"/g)].map(match=>match[1]);
   const control=svg.match(new RegExp(`<g id="map-${side}-${name}"[\\s\\S]*?<\\/g>`))[0];
-  const outlines=[...control.matchAll(/<path d="([^"]+)"[^>]*class="muscle-group-area"/g)].map(match=>match[1]);
+  const outlines=[...control.matchAll(/<path [^>]* d="([^"]+)"[^>]*class="muscle-group-area"/g)].map(match=>match[1]);
   assert.deepEqual(outlines,shapes,`${side} ${name} highlight must not create a second silhouette`);
   assert.equal((control.match(/class="muscle-group-hit"/g)||[]).length,2,'seams still belong to the same hit region');
  }
@@ -161,4 +161,20 @@ test('all-muscle map counts compound exercises once and compares unique totals',
  assert.equal((html.match(/data-view-exercise=/g)||[]).length,2);
  const empty=renderMuscleMap({summary:muscleWeekSummary([],'2026-10-19'),weeks:['2026-10-19'],selected:'all',includeSecondary:true,asOf:'2026-10-25'});
  assert.match(empty,/No training recorded this week/);
+});
+
+test('muscle flex rounds the belly while preserving tips and curve topology',()=>{
+ const rest='M0 0 C0 5 0 10 0 20 L10 20 C10 10 10 5 10 0 Z';
+ const flexed=flexMusclePath(rest);
+ assert.deepEqual(flexed.match(/[MLCQZ]/g),rest.match(/[MLCQZ]/g));
+ assert.match(flexed,/^M0 0/);assert.match(flexed,/L10 20/);
+ const values=flexed.match(/-?\d+(?:\.\d+)?/g).map(Number);
+ assert.ok(values[4]<0,'left belly expands beyond its resting edge');
+ assert.ok(values[10]>10,'right belly expands beyond its resting edge');
+ const render=selected=>renderMuscleMap({summary:muscleWeekSummary([],'2026-10-19'),weeks:['2026-10-19'],selected,includeSecondary:true,asOf:'2026-10-24'});
+ const normal=render('all'),selected=render('Chest');
+ const hitPaths=html=>[...html.matchAll(/<path d="([^"]+)"[^>]*class="muscle-group-hit"/g)].map(match=>match[1]);
+ assert.deepEqual(hitPaths(normal),hitPaths(selected),'selection does not move click targets');
+ const chest=html=>html.split('data-body-muscle="Chest"')[1].split('data-body-muscle=')[0].match(/class="muscle-surface"[^>]* d="([^"]+)"/)[1];
+ assert.notEqual(chest(normal),chest(selected),'selection changes the actual muscle outline');
 });
