@@ -14,8 +14,9 @@ recovery and available Garmin signals. Preferences controls the overview layout.
 Select a calendar day to open a session.
 
 Exercises exposes loads, reps, estimated 1RM and volume with underlying set logs.
-Choose **Est. 1RM** in the existing exercise graph’s metric selector to see
-estimates per workout. Choose a muscle group and exercise from the existing exercise list;
+Select an exercise from the existing muscle-group/exercise list, then choose
+**Est. 1RM** in its graph’s metric selector. This option is hidden for group and
+All exercises views;
 estimates from different lifts are never combined. Select a bar to open its workout.
 Date and record-source filters apply. Estimates require positive recorded load and
 1–10 reps; missing or unsupported estimates stay blank. These are Epley estimates,
@@ -34,7 +35,8 @@ Unknown exercises are hidden in ordinary dashboard views but retained in a full 
 ## Weekly volume and insights
 
 In **Historical weekly trends**, select **Est. 1RM** alongside volume, sets and
-reps. The same graph switches to the best eligible estimate per Monday–Sunday week.
+reps after selecting a specific exercise in Exercise grouping. The option is
+hidden for muscle groups and All exercises. The same graph switches to the best eligible estimate per Monday–Sunday week.
 This metric uses one exercise at a time: select it using the exercise buttons.
 Missing estimates stay blank and partial weeks are marked. Select a week to inspect
 its workouts. Switching back to muscle grouping restores the volume metric.

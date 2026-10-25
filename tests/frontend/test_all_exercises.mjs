@@ -229,19 +229,31 @@ test('estimated 1RM is an option in the existing graphs, never a separate panel'
  const a=app();a.state.page='exercises';a.state.metric='estimatedMax';
  for(const set of a.state.data.sets)set.estimatedMax=set.weight>0?set.weight*(1+set.reps/30):null;
  const view=a.current(),daily=a.exercisesPage(view);
- assert.match(daily,/data-metric="estimatedMax"[^>]*aria-pressed="true"/);
- assert.match(daily,/Select an exercise from the list/);
+ assert.doesNotMatch(daily,/data-metric="estimatedMax"/);
+ assert.equal(a.state.metric,'volume');
  assert.doesNotMatch(daily,/strength-exercise/);
- a.state.selected='Barbell Bench Press';
+ a.state.selected='Barbell Bench Press';a.state.metric='estimatedMax';
+ assert.match(a.exercisesPage(a.current()),/data-metric="estimatedMax"[^>]*aria-pressed="true"/);
  assert.equal((a.exercisesPage(a.current()).match(/id="progress-chart"/g)||[]).length,1);
  assert.doesNotMatch(daily,/strength-history-panel|Estimated 1RM over time/);
  a.state.volumeMetric='estimatedMax';
+ assert.doesNotMatch(a.volumeHistoryPanel(view),/data-volume-metric="estimatedMax"/);
+ a.state.volumeMode='exercise';a.state.volumeGroup.exercise='Barbell Bench Press';a.state.volumeMetric='estimatedMax';
  const weekly=a.volumeHistoryPanel(view);
  assert.equal(a.state.volumeMode,'exercise');
  assert.match(weekly,/data-volume-metric="estimatedMax"[^>]*aria-pressed="true"/);
  assert.match(weekly,/weekly kg estimated 1RM history/);
- assert.doesNotMatch(weekly,/data-volume-group="all"/);
+ a.state.volumeGroup.exercise='all';
+ assert.doesNotMatch(a.volumeHistoryPanel(view),/data-volume-metric="estimatedMax"/);
+ assert.equal(a.state.volumeMetric,'volume');
  assert.match(weekly,/Different exercises are never added or averaged/);
  a.state.selected='Pull Up';
  assert.match(a.progressPanel(a.current().selected),/No recorded 1RM estimates/);
+});
+
+test('even a one-exercise muscle group requires explicit exercise selection for 1RM',()=>{
+ const a=app();a.state.page='exercises';a.state.metric='estimatedMax';
+ a.selectExerciseMuscle('Biceps');
+ assert.doesNotMatch(a.exercisesPage(a.current()),/data-metric="estimatedMax"/);
+ assert.equal(a.state.metric,'volume');
 });
