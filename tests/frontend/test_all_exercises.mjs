@@ -11,7 +11,7 @@ function app(){
   vm.createContext(context);
   vm.runInContext(source.slice(source.indexOf('\n')+1,source.indexOf("document.addEventListener('click'"))+`
     today=()=> '2026-10-24';
-    this.app={state,current,libraryRows,progressPanel,setsTable,insightsPage,volumeHistoryPanel,selectExerciseMuscle};`,context);
+    this.app={state,current,libraryRows,progressPanel,setsTable,insightsPage,volumeHistoryPanel,selectExerciseMuscle,exercisesPage};`,context);
   const a=context.app;a.nodes=nodes;
   a.state.data={timezone:'Europe/Kyiv',workouts:[
     {id:'a',date:'2026-10-20',time:'2026-10-20T10:00:00Z',name:'Session A',source:'garmin'},
@@ -154,7 +154,7 @@ test('workout bars retain zero and missing readings as separate sessions',()=>{
 });
 
 test('Back exercise totals, charts and set history include bodyweight and added pull-up load',()=>{
- const a=app();a.state.page='exercises';a.state.muscleGroup='Back';
+ const a=app();a.state.page='exercises';a.state.muscleGroup='Back';a.state.exerciseVolumeMode='adjusted';
  a.state.data.volumeSettings={bodyWeightKg:80};
  const bw=a.state.data.sets.find(s=>s.exercise==='Pull Up');
  a.state.data.sets.push({...bw,id:'weighted',sessionId:'a',date:'2026-10-20',time:'2026-10-20T10:00:00Z',source:'garmin',weight:20,volume:100});
@@ -187,4 +187,59 @@ test('exercise volume uses earlier weigh-ins outside the selected date range',()
  a.state.data.recovery.push({date:'2026-10-19',bodyWeightKg:84},{date:'2026-10-24',bodyWeightKg:100});
  assert.equal(a.current().selected.volume,472.5);
  assert.equal(a.current().selected.bestWeight,0);
+});
+
+
+test('recorded exercise volume works without bodyweight; adjusted mode explains its missing prerequisite',()=>{
+ const a=app();a.state.page='exercises';a.state.selected='Squat';
+ a.state.data.sets=[{id:'s',sessionId:'a',date:'2026-10-20',time:'2026-10-20T10:00:00Z',exercise:'Squat',weight:5,reps:12,volume:60,source:'manual'}];
+ const before=JSON.stringify(a.state.data);
+ assert.equal(a.state.exerciseVolumeMode,'recorded');
+ assert.equal(a.current().selected.volume,60);
+ a.state.metric='volume';
+ let html=a.progressPanel(a.current().selected);
+ assert.match(html,/Recorded load × reps/);
+ assert.match(html,/data-point-value="60"/);
+ assert.match(a.setsTable(a.current().selected),/Recorded load × reps/);
+ a.state.exerciseVolumeMode='adjusted';
+ assert.equal(a.current().selected.volume,null);
+ html=a.progressPanel(a.current().selected);
+ assert.match(html,/Adjusted volume is unavailable/);
+ assert.match(html,/Body weight is missing/);
+ assert.doesNotMatch(html,/No recorded volume/);
+ assert.equal(JSON.stringify(a.state.data),before);
+ a.state.data.volumeSettings={bodyWeightKg:50};
+ assert.equal(a.current().selected.volume,675); // (5 + 0.8×50) × 12 × 1.25
+});
+
+test('recorded mode preserves zero and missing values and does not count assistance as resistance',()=>{
+ const input=[
+  {exercise:'Custom lift',weight:5,reps:12},
+  {exercise:'Custom lift',weight:0,reps:12},
+  {exercise:'Custom lift',weight:null,reps:12},
+  {exercise:'Custom lift',weight:5,reps:null},
+  {exercise:'Assisted Pull Up',weight:20,reps:8},
+ ];
+ assert.deepEqual(model.recordedVolumeSets(input).map(s=>s.volume),[60,0,null,null,null]);
+ assert.equal(input[0].volume,undefined);
+});
+
+
+test('estimated 1RM is an option in the existing graphs, never a separate panel',()=>{
+ const a=app();a.state.page='exercises';a.state.metric='estimatedMax';
+ for(const set of a.state.data.sets)set.estimatedMax=set.weight>0?set.weight*(1+set.reps/30):null;
+ const view=a.current(),daily=a.exercisesPage(view);
+ assert.match(daily,/data-metric="estimatedMax"[^>]*aria-pressed="true"/);
+ assert.match(daily,/Exercise for estimated 1RM/);
+ assert.equal((daily.match(/id="progress-chart"/g)||[]).length,1);
+ assert.doesNotMatch(daily,/strength-history-panel|Estimated 1RM over time/);
+ a.state.volumeMetric='estimatedMax';
+ const weekly=a.volumeHistoryPanel(view);
+ assert.equal(a.state.volumeMode,'exercise');
+ assert.match(weekly,/data-volume-metric="estimatedMax"[^>]*aria-pressed="true"/);
+ assert.match(weekly,/weekly kg estimated 1RM history/);
+ assert.doesNotMatch(weekly,/data-volume-group="all"/);
+ assert.match(weekly,/Different exercises are never added or averaged/);
+ a.state.strengthExercise='Pull Up';
+ assert.match(a.progressPanel(view.selected),/No recorded 1RM estimates/);
 });

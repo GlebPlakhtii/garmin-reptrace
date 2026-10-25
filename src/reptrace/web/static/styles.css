@@ -667,3 +667,8 @@ summary:focus-visible,textarea:focus-visible{outline:3px solid var(--syntax-nav,
 .volume-exercise-segment { cursor:pointer; }
 .volume-exercise-segment:hover { filter:brightness(1.15); stroke:var(--ink); stroke-width:1; }
 .selecting-time .volume-exercise-segment { pointer-events:none; }
+
+/* Explicit volume basis and per-exercise strength history. */
+.exercise-volume-controls { margin-bottom: 20px; gap: 20px; flex-wrap: wrap; }
+.exercise-volume-controls .segmented { flex-shrink: 0; }
+.exercise-volume-controls p { flex: 1; min-width: 260px; }

@@ -25,8 +25,8 @@ The app was previously called **Form**, then **RepTrace**. **Garmin RepTrace** i
 | Area | Capabilities |
 | --- | --- |
 | Training overview | Workout calendar, recorded sets/reps, recent sessions, recovery and Garmin training signals |
-| Exercise history | Load, reps, estimated 1RM, volume, set logs, date/source filters, consistent muscle colors |
-| Weekly volume | Stacked exercise contributions, interactive muscle map, week comparisons, missing-input coverage |
+| Exercise history | Load, reps, per-workout estimated 1RM timeline, recorded/adjusted volume, set logs, date/source filters, consistent muscle colors |
+| Weekly volume | Per-exercise weekly estimated 1RM timeline, stacked exercise contributions, interactive muscle map, week comparisons, missing-input coverage |
 | Workout analysis | Detailed sessions, matching-rep comparisons, personal records, descriptive progress and plateau signals |
 | Planning | Evidence-based next-session proposals, equipment increments, rep ranges, printable PNG plans |
 | Garmin workouts | Browse templates, edit steps/repeats/rest/weights, preview changes, apply and read back the result |

@@ -968,3 +968,34 @@ export function adjustedVolumeSets(sets, recovery = [], settings = {}) {
     return {...set,assistance:rule.recordedAssistance,volume:valid?load*set.reps*rule.multiplier:null,missingBodyweight,missingLoad,unreviewed};
   });
 }
+
+// Recorded external load is independent of bodyweight and movement estimates.
+export function recordedVolumeSets(sets, settings = {}) {
+  return sets.map(set => {
+    const assistance=isAssistedExercise(set.exercise,settings);
+    const valid=present(set.weight)&&set.weight>=0&&present(set.reps)&&set.reps>=0&&!assistance;
+    return {...set,assistance,volume:valid?set.weight*set.reps:null};
+  });
+}
+
+// One lift at a time. Weekly estimates are maxima, never sums across sets/lifts.
+export function estimatedStrengthHistory(sets, exercise, weekly=false, range={}) {
+  const rows=sets.filter(s=>s.exercise===exercise&&(!range.from||s.date>=range.from)&&(!range.to||s.date<=range.to));
+  if(!rows.length)return [];
+  const groups=new Map();
+  for(const row of rows){
+    const key=weekly?weekStart(row.date):row.sessionId;
+    if(!groups.has(key))groups.set(key,{date:weekly?key:row.date,time:row.time||row.date,value:null,sets:0,eligibleSets:0,sessionId:null});
+    const point=groups.get(key);point.sets++;
+    if((typeof row.assistance==='boolean'?row.assistance:isAssistedExercise(row.exercise))||!present(row.estimatedMax)||row.estimatedMax<=0||!present(row.weight)||row.weight<=0||!Number.isInteger(row.reps)||row.reps<1||row.reps>10)continue;
+    point.eligibleSets++;
+    if(point.value===null||row.estimatedMax>point.value){point.value=row.estimatedMax;point.sessionId=row.sessionId;}
+  }
+  if(!weekly)return [...groups.values()].sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));
+  const dates=rows.map(s=>s.date).sort(),from=range.from||dates[0],to=range.to||dates.at(-1),history=[];
+  for(const d=new Date(weekStart(from)+'T00:00:00Z');d.toISOString().slice(0,10)<=to;d.setUTCDate(d.getUTCDate()+7)){
+    const day=d.toISOString().slice(0,10),end=new Date(d);end.setUTCDate(end.getUTCDate()+6);
+    history.push({...groups.get(day)||{date:day,value:null,sets:0,eligibleSets:0,sessionId:null},partial:day<from||end.toISOString().slice(0,10)>to});
+  }
+  return history;
+}

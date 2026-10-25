@@ -14,11 +14,30 @@ recovery and available Garmin signals. Preferences controls the overview layout.
 Select a calendar day to open a session.
 
 Exercises exposes loads, reps, estimated 1RM and volume with underlying set logs.
+Choose **Est. 1RM** in the existing exercise graph’s metric selector to see
+estimates per workout. In the combined view, choose one exercise from the dropdown;
+estimates from different lifts are never combined. Select a bar to open its workout.
+Date and record-source filters apply. Estimates require positive recorded load and
+1–10 reps; missing or unsupported estimates stay blank. These are Epley estimates,
+not measured maximums.
+
+Exercises defaults to **Recorded load × reps**, which needs no bodyweight or
+movement profile. **Adjusted volume** uses the configured factors and explains
+missing inputs. The choice is remembered in this browser and applies only to
+Exercises; other pages retain their labeled adjusted-volume calculations.
+Assisted loads are excluded from recorded resistance volume.
+
 Exercise colors follow their primary muscle group, including saved overrides.
 Workouts provides searchable sessions, complete set detail, corrections and exports.
 Unknown exercises are hidden in ordinary dashboard views but retained in a full export.
 
 ## Weekly volume and insights
+
+In **Historical weekly trends**, select **Est. 1RM** alongside volume, sets and
+reps. The same graph switches to the best eligible estimate per Monday–Sunday week.
+This metric uses one exercise at a time: select it using the exercise buttons.
+Missing estimates stay blank and partial weeks are marked. Select a week to inspect
+its workouts. Switching back to muscle grouping restores the volume metric.
 
 Weekly volume stacks each exercise's contribution and provides an interactive
 muscle map. Choose sets, reps, or adjusted volume, select a week, and inspect the
