@@ -1,0 +1,44 @@
+[project]
+name = "garmin-reptrace"
+version = "0.3.0"
+description = "Self-hosted strength training analytics, planning, and Garmin integration"
+readme = "README.md"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE", "LICENSES/*.txt", "NOTICE.md"]
+requires-python = "==3.13.*"
+dependencies = [
+    "dotenv==0.9.9",
+    "fitparse==1.2.0",
+    "garminconnect==0.2.26",
+    "influxdb==5.3.2",
+    "influxdb3-python==0.12.0",
+    "pandas==2.2.3",
+    "pillow>=11.3,<13",
+]
+
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+include = ["src/**", "tests/**", "scripts/**", "docs/**", "README.md", "NOTICE.md", "LICENSE", "LICENSES/**", "pyproject.toml", "uv.lock", "Dockerfile", "docker-compose.yml", ".env.example", ".dockerignore", ".gitignore", ".python-version", "easy-install.sh", ".github/**"]
+exclude = ["**/__pycache__", "**/*.pyc", "docs/project-review.md"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/reptrace"]
+
+[project.scripts]
+garmin-reptrace = "reptrace.web.server:main"
+garmin-reptrace-demo = "reptrace.web.demo:main"
+garmin-reptrace-sync = "reptrace.garmin.collector:main"
+garmin-reptrace-telegram = "reptrace.telegram.bot:main"
+garmin-reptrace-backfill = "reptrace.garmin.backfill:main"
+garmin-reptrace-import = "reptrace.storage.manual_import:main"
+
+# Compatibility aliases for existing installations and automation.
+reptrace = "reptrace.web.server:main"
+reptrace-demo = "reptrace.web.demo:main"
+reptrace-sync = "reptrace.garmin.collector:main"
+reptrace-telegram = "reptrace.telegram.bot:main"
+reptrace-backfill = "reptrace.garmin.backfill:main"
+reptrace-import = "reptrace.storage.manual_import:main"

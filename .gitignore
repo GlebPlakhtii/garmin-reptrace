@@ -1,0 +1,35 @@
+garminconnect-tokens/
+override-default-vars.env
+kubernetes-spec.yaml
+__pycache__/
+*.py[cod]
+
+.env
+.env.*
+!.env.example
+form-state-backup.sqlite
+
+# Local runtime, private training history, and generated artifacts.
+.venv/
+influxdb_backups/
+garmin-connect-exercise-renaming.txt
+t.csv
+*.sqlite
+*.sqlite-*
+*.sqlite.*
+*.db
+*.db-*
+*.fit
+*.FIT
+.data/
+backups/
+dist/
+build/
+*.egg-info/
+# Local operational journal; the public export supplies portable agent guidance.
+REVIEW_PROGRESS.md
+docs/project-review.md
+
+# Local editor settings
+.idea/
+.vscode/

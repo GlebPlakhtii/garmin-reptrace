@@ -1,0 +1,15 @@
+# Allow only application build inputs; never send local records or credentials.
+**
+!Dockerfile
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!NOTICE.md
+!src/
+!src/**
+**/__pycache__/
+**/*.pyc
+
+!LICENSES/
+!LICENSES/**
