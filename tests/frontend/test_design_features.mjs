@@ -7,7 +7,7 @@ const source=fs.readFileSync(new URL('../../src/reptrace/web/static/app.js',impo
 function setup(document={querySelector:()=>({})}){
  const context={...model,document,window:{},setTimeout,clearTimeout};
  vm.createContext(context);
- vm.runInContext(source.slice(source.indexOf('\n')+1,source.indexOf("document.addEventListener('click'"))+`\nthis.api={state,pages,nav,muscleTag,recoveryChart,loadingSkeleton,bindChart,volumeExerciseImpact,volumeHistoryChart};bindTimeSelection=()=>{};`,context);
+ vm.runInContext(source.slice(source.indexOf('\n')+1,source.indexOf("document.addEventListener('click'"))+`\nthis.api={state,pages,nav,muscleTag,recoveryChart,loadingSkeleton,bindChart,volumeExerciseImpact,volumeHistoryChart,volumeMiniChart};bindTimeSelection=()=>{};`,context);
  return context.api;
 }
 test('grouped navigation includes every page exactly once and preserves active state',()=>{
@@ -88,6 +88,58 @@ test('weekly all-muscle bars stack exact exercise contributions with shared colo
  assert.ok(Math.abs(heights['Barbell Bench Press']/heights['Pull Up']-3)<1e-9);
  assert.equal((a.volumeHistoryChart({group:'All muscles',history:[week]},'sets').match(/class="volume-exercise-segment"/g)||[]).length,3);
  assert.doesNotMatch(html,/NaN|Infinity/);
+});
+test('weekly chart motion marks measurements while preserving static week hit targets and missing values',()=>{
+ const a=setup();a.state.data={};
+ const history=[
+  {week:'2026-10-05',volume:300,sets:3,volumeKnown:3},
+  {week:'2026-10-12',volume:0,sets:0,volumeKnown:0,noRecords:true},
+  {week:'2026-10-19',volume:null,sets:2,volumeKnown:0,partial:true},
+ ];
+ const html=a.volumeHistoryChart({group:'Chest',history},'volume');
+ assert.match(html,/data-plot-bottom="235"/);
+ const weeks=[...html.matchAll(/<g class="volume-week-bar[^>]*>[\s\S]*?<\/g>/g)].map(match=>match[0]);
+ assert.equal(weeks.length,3);
+ for(const [index,week] of weeks.entries()){
+  assert.match(week,new RegExp(`data-volume-week="${history[index].week}" role="button" tabindex="0"`));
+  const rectangles=[...week.matchAll(/<rect\b[^>]*>/g)].map(match=>match[0]);
+  assert.equal(rectangles.length,2);
+  assert.match(rectangles[0],/height="219" fill="transparent"/);
+  assert.doesNotMatch(rectangles[0],/volume-value-bar|data-point-value/);
+  assert.match(rectangles[1],/class="volume-value-bar"/);
+  assert.match(rectangles[1],new RegExp(`data-point-value="${history[index].volume??''}"`));
+ }
+ assert.match(weeks[1],/height="2"/);
+ assert.match(weeks[2],/>\?<\/text>/);
+ assert.match(weeks[2],/<circle /);
+});
+test('weekly stack motion uses contribution values and mini histories retain missing gaps',()=>{
+ const a=setup();a.state.data={};
+ const history=[
+  {week:'2026-10-05',volume:400,sets:3,volumeKnown:2,exercises:[
+   {group:'Barbell Bench Press',volume:300},
+   {group:'Pull Up',volume:100},
+   {group:'Missing',volume:null},
+   {group:'Zero',volume:0},
+  ]},
+  {week:'2026-10-12',volume:0,sets:0,noRecords:true},
+  {week:'2026-10-19',volume:null,sets:1},
+ ];
+ const html=a.volumeHistoryChart({group:'All muscles',history},'volume');
+ const contributions=[...html.matchAll(/<rect class="volume-exercise-segment"[^>]*>/g)].map(match=>match[0]);
+ assert.equal(contributions.length,2);
+ assert.match(contributions.find(rect=>rect.includes('Barbell Bench Press')),/data-point-value="300"/);
+ assert.match(contributions.find(rect=>rect.includes('Pull Up')),/data-point-value="100"/);
+ const mini=a.volumeMiniChart({group:'Chest & shoulders',history},'volume');
+ assert.match(mini,/class="volume-mini-svg"/);
+ assert.match(mini,/data-motion-key="volume-mini:Chest &amp; shoulders"/);
+ assert.match(mini,/data-motion-metric="volume"/);
+ assert.match(mini,/data-plot-bottom="60"/);
+ const bars=[...mini.matchAll(/<rect\b[^>]*>/g)].map(match=>match[0]);
+ assert.equal(bars.length,2);
+ assert.ok(bars.every(rect=>rect.includes('class="volume-value-bar"')));
+ assert.match(bars[0],/data-point-value="400"/);
+ assert.match(bars[1],/data-point-value="0"/);
 });
 test('stack order groups exercises bottom-to-top and honors muscle overrides',()=>{
  const names=['Lateral Raise','Barbell Bench Press','Leg Press','Calf Raise Machine','Squat','Pull Up','Mystery','Cable Crunch'];

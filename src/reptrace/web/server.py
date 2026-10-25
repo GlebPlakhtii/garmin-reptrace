@@ -796,6 +796,10 @@ class Handler(BaseHTTPRequestHandler):
             "/model.mjs": ("model.mjs", "text/javascript"),
             "/recovery.mjs": ("recovery.mjs", "text/javascript"),
             "/muscle-map.mjs": ("muscle-map.mjs", "text/javascript"),
+            "/chart-motion.mjs": ("chart-motion.mjs", "text/javascript"),
+            "/ui-motion.mjs": ("ui-motion.mjs", "text/javascript"),
+            "/body-motion.mjs": ("body-motion.mjs", "text/javascript"),
+            "/motion.css": ("motion.css", "text/css"),
             "/styles.css": ("styles.css", "text/css"),
             "/favicon.svg": ("favicon.svg", "image/svg+xml"),
         }
