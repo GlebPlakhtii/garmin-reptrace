@@ -18,7 +18,7 @@ function fixture() {
     return node;
   };
   const muscles = [muscle('Chest'), muscle('Shoulders')];
-  const controls=muscles.map(node=>({dataset:{mapMuscle:node.dataset.bodyMuscle},shape:{...node.shape},querySelectorAll(){return [this.shape];}}));
+  const controls=muscles.map(node=>({dataset:{mapMuscle:node.dataset.bodyMuscle},shape:{...node.shape},querySelectorAll(){return [];}}));
   const figure = {dataset: {bodyKey: 'body-work-front', bodyContext: '2026-10-19|0'},
     querySelectorAll(selector) {return selector==='.body-muscle[data-map-muscle]'?controls:muscles;}};
   const root = {querySelectorAll(selector) {assert.equal(selector, '.body-map-svg'); return [figure];}};
@@ -40,28 +40,27 @@ test('body artwork reveals on week changes, even with equal totals, without anim
   motion.finish();
 });
 
-test('selection flexes artwork and its highlight together within the body, and relaxes the previous muscle', () => {
+test('selection flexes artwork inside its stationary group border, and relaxes the previous muscle', () => {
   const f = fixture(), motion = createBodyMotion();
   motion.update(f.root, {route: '#volume', reduced: true});
   f.muscles[0].dataset.bodySelected = 'true';
   motion.update(f.root, {route: '#volume'});
-  assert.equal(f.animations.length, 3);
-  const [shape,outline,glow]=f.animations;
+  assert.equal(f.animations.length, 2);
+  const [shape,glow]=f.animations;
   assert.equal(shape.node,f.muscles[0].shape);
-  assert.equal(outline.node,f.controls[0].shape);
-  assert.deepEqual(shape.frames,outline.frames,'the selection edge follows the deformation');
+  assert.ok(f.animations.every(animation=>animation.node!==f.controls[0].shape),'the group border never changes shape');
   assert.equal(shape.frames[0].d,'path("M0 0 Q5 10 10 0 Z")');
   assert.equal(shape.frames[1].d,'path("M0 0 Q5 12 10 0 Z")');
   assert.equal(glow.node, f.muscles[0].pieces[0].glow);
   assert.equal(glow.frames[0].clipPath, 'circle(0% at 50% 50%) fill-box');
   assert.equal(glow.frames.at(-1).opacity, .16);
   motion.update(f.root, {route: '#volume'});
-  assert.equal(f.animations.length, 3,'unchanged selection does not flex again');
+  assert.equal(f.animations.length, 2,'unchanged selection does not flex again');
   f.muscles[0].dataset.bodySelected='false';
   f.muscles[1].dataset.bodySelected='true';
   motion.update(f.root,{route:'#volume'});
-  assert.deepEqual(f.animations[3].frames,[...shape.frames].reverse(),'previous muscle relaxes');
-  assert.equal(f.animations[5].node,f.muscles[1].shape);
+  assert.deepEqual(f.animations[2].frames,[...shape.frames].reverse(),'previous muscle relaxes');
+  assert.equal(f.animations[3].node,f.muscles[1].shape);
   motion.finish();
 });
 

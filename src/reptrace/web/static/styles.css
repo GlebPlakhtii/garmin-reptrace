@@ -666,9 +666,10 @@ summary:focus-visible,textarea:focus-visible{outline:3px solid var(--syntax-nav,
 .body-muscle-art,.body-muscle-art *{pointer-events:none;transition:none}
 .body-muscle{cursor:pointer;outline:none}
 .body-muscle .muscle-group-hit{fill:transparent;stroke:transparent;stroke-width:6;stroke-linejoin:round;pointer-events:all}
-.body-muscle .muscle-group-area{fill:transparent;stroke:transparent;pointer-events:none;stroke-linejoin:round;transition:fill .15s,stroke .15s}
-.body-muscle.selected .muscle-group-area{fill:none;stroke:#9ce4ff;stroke-width:2.1;filter:none}
-.body-muscle:focus-visible .muscle-group-area{fill:none;stroke:#fff;stroke-width:2.5;stroke-dasharray:none;filter:none}
+.body-muscle .muscle-group-area{fill:none;stroke:#91bfd2;stroke-opacity:.3;stroke-width:.75;pointer-events:none;stroke-linejoin:round;filter:none}
+.body-muscle:hover .muscle-group-area{stroke-opacity:.8;stroke-width:1.1}
+.body-muscle.selected .muscle-group-area{fill:none;stroke:#9ce4ff;stroke-opacity:1;stroke-width:1.6;filter:none}
+.body-muscle:focus-visible .muscle-group-area{fill:none;stroke:#fff;stroke-opacity:1;stroke-width:2;stroke-dasharray:none;filter:none}
 [data-theme="daylight"] .body-muscle:is(.selected,:focus-visible) .muscle-group-area{fill:none;stroke:#236b89}
 @media(prefers-reduced-motion:reduce){.body-muscle .muscle-group-area{transition:none}}
 .body-map-svg .body-muscle-art path{transition:none}

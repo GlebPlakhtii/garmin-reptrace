@@ -29,7 +29,6 @@ export function createBodyMotion() {
     for (const figure of root.querySelectorAll('.body-map-svg')) {
       const context = figure.dataset.bodyContext;
       const muscles = [...figure.querySelectorAll('.body-muscle-art[data-body-muscle]')];
-      const controls = [...figure.querySelectorAll('.body-muscle[data-map-muscle]')];
       artwork.push(...muscles);
       muscles.forEach((node, index) => {
         const key = `${figure.dataset.bodyKey}:${node.dataset.bodyMuscle}`;
@@ -38,8 +37,7 @@ export function createBodyMotion() {
         next.set(key, state);
         if (reduced) return;
         if (before && before.selected !== state.selected) {
-          const control = controls.find(control => control.dataset.mapMuscle === node.dataset.bodyMuscle);
-          const paths = [...node.querySelectorAll('[data-muscle-rest]'), ...(control?.querySelectorAll('[data-muscle-rest]') || [])];
+          const paths = node.querySelectorAll('[data-muscle-rest]');
           for (const path of paths) {
             const rest = path.dataset.muscleRest, flexed = path.dataset.muscleFlexed;
             play(path, [

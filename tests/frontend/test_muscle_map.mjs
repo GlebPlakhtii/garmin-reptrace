@@ -5,15 +5,14 @@ import {renderMuscleMap,muscleChange,flexMusclePath} from '../../src/reptrace/we
 const set=(exercise,extra={})=>({exercise,date:'2026-10-23',sessionId:'a',weight:80,reps:10,volume:800,source:'garmin',...extra});
 const group=(summary,name)=>summary.groups.find(g=>g.name===name);
 
-test('expanding selection outlines match the visible muscle shapes while hit regions stay fixed',()=>{
+test('fixed group borders match the artwork clipping regions while hit targets stay fixed',()=>{
  const html=renderMuscleMap({summary:muscleWeekSummary([set('Squat')],'2026-10-19'),weeks:['2026-10-19'],selected:'Core',includeSecondary:true,asOf:'2026-10-24'});
  for(const [side,name] of [['front','Core'],['front','Quads'],['back','Back']]){
   const svg=html.match(new RegExp(`<svg[^>]*data-body-key="body-work-${side}"[\\s\\S]*?<\\/svg>`))[0];
-  const art=svg.split(`data-body-muscle="${name}"`)[1].split('data-body-muscle=')[0];
-  const shapes=[...art.matchAll(/<path class="muscle-surface"[^>]* d="([^"]+)"/g)].map(match=>match[1]);
+  const region=svg.match(new RegExp(`<clipPath id="body-work-${side}-${name}-region"[^>]*><path class="muscle-region-shape" d="([^"]+)"`))[1];
   const control=svg.match(new RegExp(`<g id="map-${side}-${name}"[\\s\\S]*?<\\/g>`))[0];
-  const outlines=[...control.matchAll(/<path [^>]* d="([^"]+)"[^>]*class="muscle-group-area"/g)].map(match=>match[1]);
-  assert.deepEqual(outlines,shapes,`${side} ${name} highlight follows the expanded muscle`);
+  const outlines=[...control.matchAll(/<path d="([^"]+)"[^>]*class="muscle-group-area"/g)].map(match=>match[1]);
+  assert.deepEqual(outlines,[region,region],`${side} ${name} border exactly matches its clip region`);
   assert.equal((control.match(/class="muscle-group-hit"/g)||[]).length,2,'seams still belong to the same hit region');
  }
 });
@@ -179,7 +178,7 @@ test('muscle flex rounds the belly while preserving tips and curve topology',()=
  assert.notEqual(chest(normal),chest(selected),'selection changes the actual muscle outline');
 });
 
-test('full-sized muscles expand within the original body silhouette, with the body edge drawn above them',()=>{
+test('full-sized muscles expand inside their own fixed group border and the body silhouette',()=>{
  const render=selected=>renderMuscleMap({summary:muscleWeekSummary([],'2026-10-19'),weeks:['2026-10-19'],selected,includeSecondary:true,asOf:'2026-10-24'});
  const normal=render('all'),selected=render('Chest');
  const shell=html=>html.match(/class="body-outline"[^>]* d="([^"]+)"/)[1];
@@ -187,12 +186,58 @@ test('full-sized muscles expand within the original body silhouette, with the bo
  for(const html of [normal,selected]){
   const body=html.match(/<clipPath id="body-work-front-body-boundary" clipPathUnits="userSpaceOnUse"><path d="([^"]+)"/)[1];
   assert.equal(body,shell(html),'containment uses the actual body shape');
-  assert.match(html,/class="body-muscle-art [^"]+" clip-path="url\(#body-work-front-body-boundary\)" data-body-muscle="Chest"/);
+  assert.match(html,/class="body-muscle-art [^"]+" clip-path="url\(#body-work-front-Chest-region\)" data-body-muscle="Chest"/);
   assert.match(html,/<g clip-path="url\(#body-work-front-body-boundary\)">[\s\S]*class="muscle-group-area"[\s\S]*<\/g><path class="body-containment-outline"/,'muscles and their highlights share body containment; fixed body edge is above both');
-  assert.doesNotMatch(html,/id="body-work-front-Chest-boundary"/,'no artificial chest envelope cuts expansion short');
+  const region=html.match(/<path class="muscle-region-shape" d="([^"]+)"/)[1];
+  assert.ok(region.length>20);
+  assert.doesNotMatch(html,/class="muscle-group-area"[^>]*data-muscle-rest=/,'the border never morphs');
  }
+ const regionPaths=html=>[...html.matchAll(/class="muscle-region-shape" d="([^"]+)"/g)].map(m=>m[1]);
+ assert.deepEqual(regionPaths(normal),regionPaths(selected),'all group boundaries remain fixed');
  const shape=selected.split('data-body-muscle="Chest"')[1].match(/data-muscle-rest="([^"]+)" data-muscle-flexed="([^"]+)"/);
  assert.equal(shape[1],'M75 84 C83 80 101 83 107 91 L107 119 C105 135 78 138 66 121 C61 112 64 96 75 84 Z','resting chest keeps its exact original size');
  const width=path=>{const xs=path.match(/-?\d+(?:\.\d+)?/g).map(Number).filter((_,i)=>i%2===0);return Math.max(...xs)-Math.min(...xs);};
  assert.ok(width(shape[2])>width(shape[1])*1.25,'selection expands from the original full size');
+});
+
+function sample(path){
+ const tokens=path.match(/[MLCQZ]|-?\d+(?:\.\d+)?/g);let i=0,p=[0,0],start=p,result=[];
+ const pair=()=>[Number(tokens[i++]),Number(tokens[i++])];
+ while(i<tokens.length){const cmd=tokens[i++],a=p;
+  if(cmd==='M'){p=pair();start=p;result.push(p);}
+  else if(cmd==='L'){p=pair();result.push(p);}
+  else if(cmd==='Z'){p=start;result.push(p);}
+  else if(cmd==='Q'||cmd==='C'){
+   const b=pair(),c=pair(),d=cmd==='C'?pair():null;
+   for(let j=1;j<=80;j++){const t=j/80,u=1-t;result.push([0,1].map(k=>d?u*u*u*a[k]+3*u*u*t*b[k]+3*u*t*t*c[k]+t*t*t*d[k]:u*u*a[k]+2*u*t*b[k]+t*t*c[k]));}
+   p=d||c;
+  }else throw new Error(cmd);
+ }
+ return result;
+}
+function outside(point,poly){let inside=false,distance=Infinity;const [x,y]=point;
+ for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+  const [ax,ay]=poly[j],[bx,by]=poly[i];
+  if((ay>y)!==(by>y)&&x<(bx-ax)*(y-ay)/(by-ay)+ax)inside=!inside;
+  const dx=bx-ax,dy=by-ay,t=Math.max(0,Math.min(1,((x-ax)*dx+(y-ay)*dy)/(dx*dx+dy*dy||1)));
+  distance=Math.min(distance,Math.hypot(x-ax-t*dx,y-ay-t*dy));
+ }
+ return inside?0:distance;
+}
+
+test('every original resting muscle fits inside its anatomical compartment',()=>{
+ const html=renderMuscleMap({summary:muscleWeekSummary([],'2026-10-19'),weeks:['2026-10-19'],selected:'all',includeSecondary:true,asOf:'2026-10-24'});
+ let checked=0;
+ for(const side of ['front','back']){
+  const svg=html.match(new RegExp(`<svg[^>]*data-body-key="body-work-${side}"[\\s\\S]*?<\\/svg>`))[0];
+  for(const match of svg.matchAll(/<clipPath id="body-work-[^"]+-([A-Za-z]+)-region"[^>]*><path class="muscle-region-shape" d="([^"]+)"/g)){
+   const [,name,border]=match,region=sample(border);
+   const art=svg.split(`data-body-muscle="${name}"`)[1].split('data-body-muscle=')[0];
+   const paths=[...art.matchAll(/class="muscle-surface"[^>]*data-muscle-rest="([^"]+)"/g)].map(m=>m[1]);
+   assert.ok(paths.length,`${side} ${name} has resting artwork`);
+   for(const path of paths)assert.ok(sample(path).every(point=>outside(point,region)<=.3),`${side} ${name} original size must not be clipped smaller`);
+   checked++;
+  }
+ }
+ assert.equal(checked,14,'all front and back muscle groups have explicit compartments');
 });
