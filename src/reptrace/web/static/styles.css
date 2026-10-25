@@ -668,9 +668,9 @@ summary:focus-visible,textarea:focus-visible{outline:3px solid var(--syntax-nav,
 .selecting-time .volume-exercise-segment { pointer-events:none; }
 
 /* Explicit volume basis and per-exercise strength history. */
-.exercise-volume-controls { margin-bottom: 20px; gap: 20px; flex-wrap: wrap; }
-.exercise-volume-controls .segmented { flex-shrink: 0; }
-.exercise-volume-controls p { flex: 1; min-width: 260px; }
+.exercise-volume-controls { margin-bottom: 20px; }
+.exercise-volume-controls .segmented { flex-wrap: wrap; margin: 0 24px; }
+.exercise-volume-controls > p { margin: 16px 24px 24px; color: var(--muted); font-size: 13px; line-height: 1.6; }
 
 /* Saved operations remain readable on phones and while the training DB is offline. */
 .operation-history{margin-top:24px}.operations-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:0 24px 24px}
