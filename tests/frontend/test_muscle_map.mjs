@@ -5,6 +5,28 @@ import {renderMuscleMap,muscleChange} from '../../src/reptrace/web/static/muscle
 const set=(exercise,extra={})=>({exercise,date:'2026-10-23',sessionId:'a',weight:80,reps:10,volume:800,source:'garmin',...extra});
 const group=(summary,name)=>summary.groups.find(g=>g.name===name);
 
+test('visible selection follows muscle lobes while seamless click regions remain combined',()=>{
+ const html=renderMuscleMap({summary:muscleWeekSummary([set('Squat')],'2026-10-19'),weeks:['2026-10-19'],selected:'Core',includeSecondary:true,asOf:'2026-10-24'});
+ for(const [side,name] of [['front','Core'],['front','Quads'],['back','Back']]){
+  const svg=html.match(new RegExp(`<svg[^>]*data-body-key="body-work-${side}"[\\s\\S]*?<\\/svg>`))[0];
+  const art=svg.split(`data-body-muscle="${name}"`)[1].split('data-body-muscle=')[0];
+  const shapes=[...art.matchAll(/<path class="muscle-surface"[^>]* d="([^"]+)"/g)].map(match=>match[1]);
+  const control=svg.match(new RegExp(`<g id="map-${side}-${name}"[\\s\\S]*?<\\/g>`))[0];
+  const outlines=[...control.matchAll(/<path d="([^"]+)"[^>]*class="muscle-group-area"/g)].map(match=>match[1]);
+  assert.deepEqual(outlines,shapes,`${side} ${name} highlight must not create a second silhouette`);
+  assert.equal((control.match(/class="muscle-group-hit"/g)||[]).length,2,'seams still belong to the same hit region');
+ }
+});
+
+test('front shins use broad curved shading without the long rod-like tendon strokes',()=>{
+ const html=renderMuscleMap({summary:muscleWeekSummary([],'2026-10-19'),weeks:['2026-10-19'],selected:'all',includeSecondary:true,asOf:'2026-10-24'});
+ const front=html.match(/<svg[^>]*data-body-key="body-work-front"[\s\S]*?<\/svg>/)[0];
+ const back=html.match(/<svg[^>]*data-body-key="body-work-back"[\s\S]*?<\/svg>/)[0];
+ assert.equal((front.match(/class="front-shin-shading"/g)||[]).length,2);
+ assert.doesNotMatch(front,/M83 351 L83 418|M87\.83 347 L88\.07 424|L86 413 L83 431/);
+ assert.match(back,/L86 413 L83 431/,'posterior tendon artwork remains intact');
+});
+
 test('compound sets credit every involved muscle once while weekly totals stay unique',()=>{
  const data=muscleWeekSummary([set('Squat'),set('Barbell Deadlift')],'2026-10-19');
  assert.equal(data.sets,2);assert.equal(data.workouts,1);assert.equal(data.volume,1600);

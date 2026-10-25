@@ -6,9 +6,10 @@
 }
 
 /* Hover a region or its group button to illuminate matching front/back artwork. */
-.body-map-svg .body-muscle-art[data-body-hovered] {
-  filter: brightness(1.12);
+.body-map-svg .body-muscle-art[data-body-hovered] .muscle-hover-wash {
+  opacity: .1;
 }
+.body-map-svg .body-muscle-art .muscle-hover-wash,
 .body-map-svg .body-muscle-art .muscle-selection-glow {
   fill: #dff4ff;
   stroke: none;
@@ -18,8 +19,8 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .body-map-svg .body-muscle-art {
-    transition: filter 220ms var(--motion-ease);
+  .body-map-svg .body-muscle-art .muscle-hover-wash {
+    transition: opacity 180ms var(--motion-ease);
   }
   :is(button, .button, .icon-button, .text-link, .topnav-link,
       .topnav-more-toggle, .nav-item, summary, input, select, textarea,
@@ -62,9 +63,8 @@
 
   /* Only the selection overlay changes; the anatomical artwork and hit area are static. */
   .body-muscle .muscle-group-area {
-    transition:
-      fill var(--motion-control) var(--motion-ease),
-      stroke var(--motion-control) var(--motion-ease);
+    /* A retiring outline must not linger beside the newly selected one. */
+    transition: none;
   }
 
   .chart-point {

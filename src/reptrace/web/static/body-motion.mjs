@@ -50,7 +50,7 @@ export function createBodyMotion() {
             const glow = piece.querySelector('.muscle-selection-glow');
             if (glow) play(glow, [
               {clipPath: 'circle(0% at 50% 50%) fill-box', opacity: 0},
-              {clipPath: 'circle(45% at 50% 50%) fill-box', opacity: .24, offset: .45},
+              {clipPath: 'circle(45% at 50% 50%) fill-box', opacity: .12, offset: .45},
               {clipPath: 'circle(75% at 50% 50%) fill-box', opacity: 0},
             ]);
           }
