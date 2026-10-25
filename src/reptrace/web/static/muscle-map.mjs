@@ -61,13 +61,13 @@ export function flexMusclePath(path,widthAmount=.65,heightAmount=.18){
     return String(Number(value.toFixed(3)));
   });
 }
-function muscleShape(path,selected){
+function muscleShape(path){
   const rest=path,flexed=flexMusclePath(path);
-  return `data-muscle-rest="${rest}" data-muscle-flexed="${flexed}" d="${selected?flexed:rest}"`;
+  return `data-muscle-rest="${rest}" data-muscle-flexed="${flexed}" d="${rest}"`;
 }
 // Fibres follow the long axis of each lobe and are clipped to its exact outline.
 // These decorative paths never create extra hit targets or extra set credits.
-function muscleFibres(path,id,name,selected){
+function muscleFibres(path,id,name){
   const values=path.match(/-?\d+(?:\.\d+)?/g).map(Number);
   const xs=values.filter((_,i)=>i%2===0),ys=values.filter((_,i)=>i%2===1);
   const x=Math.min(...xs),y=Math.min(...ys),w=Math.max(...xs)-x,h=Math.max(...ys)-y;
@@ -78,7 +78,7 @@ function muscleFibres(path,id,name,selected){
       ? `M${x-3} ${y+h*t} Q${x+w*.5} ${y+h*t-h*.28} ${x+w+3} ${y+h*t+h*.16}`
       : `M${x+w*t} ${y-3} Q${x+w*t-w*.3} ${y+h*.5} ${x+w*t+w*.12} ${y+h+3}`;
   }).join(' ');
-  return `<defs><clipPath id="${id}"><path ${muscleShape(path,selected)}/></clipPath></defs><g class="muscle-fibres" clip-path="url(#${id})" aria-hidden="true"><path d="${lines}"/><path d="${lines}" transform="translate(.55 .6)"/></g>`;
+  return `<defs><clipPath id="${id}"><path ${muscleShape(path)}/></clipPath></defs><g class="muscle-fibres" clip-path="url(#${id})" aria-hidden="true"><path d="${lines}"/><path d="${lines}" transform="translate(.55 .6)"/></g>`;
 }
 // Curved footprints bridge the internal seams without adding rectangular targets.
 // A single interaction layer sits above pointer-inert artwork for uniform hover.
@@ -141,7 +141,7 @@ function figure(side,groups,selected,comparison=null,week=''){
   const controls=Object.entries(anatomy[side]).map(([name,paths])=>{
     const group=lookup.get(name),change=comparison?muscleChange(group,comparison.groups.find(g=>g.name===name),comparison.available):null,label=change?`${name}: ${change.label}`:`${name}: ${group.primary} primary sets, ${group.secondary} secondary sets`;
     const tone=change?`change-${change.status}`:roleClass(group);
-    const shapes=paths.map((path,index)=>[false,true].map(mirrored=>`<g${mirrored?' transform="translate(220 0) scale(-1 1)"':''}><g class="body-muscle-piece"><path class="muscle-surface" style="fill:url(#${material}-${!comparison&&group.sets?name:tone});opacity:${!comparison&&!group.primary&&group.secondary?.65:1}" ${muscleShape(path,name===selected)}/><path class="muscle-sheen" aria-hidden="true" style="fill:url(#${material}-sheen);stroke:url(#${material}-bevel)" ${muscleShape(path,name===selected)}/><path class="muscle-hover-wash" aria-hidden="true" ${muscleShape(path,name===selected)}/><path class="muscle-selection-glow" aria-hidden="true" ${muscleShape(path,name===selected)}/>${muscleFibres(path,`${material}-${name}-${index}-${mirrored?1:0}`,name,name===selected)}</g></g>`).join('')).join('');
+    const shapes=paths.map((path,index)=>[false,true].map(mirrored=>`<g${mirrored?' transform="translate(220 0) scale(-1 1)"':''}><g class="body-muscle-piece"><path class="muscle-surface" style="fill:url(#${material}-${!comparison&&group.sets?name:tone});opacity:${!comparison&&!group.primary&&group.secondary?.65:1}" ${muscleShape(path)}/><path class="muscle-sheen" aria-hidden="true" style="fill:url(#${material}-sheen);stroke:url(#${material}-bevel)" ${muscleShape(path)}/><path class="muscle-hover-wash" aria-hidden="true" ${muscleShape(path)}/><path class="muscle-selection-glow" aria-hidden="true" ${muscleShape(path)}/>${muscleFibres(path,`${material}-${name}-${index}-${mirrored?1:0}`,name)}</g></g>`).join('')).join('');
     const region=muscleRegions[side][name];
     const border=areaPaths(side,[region],name,'class="muscle-group-area" aria-hidden="true"');
     drawings.push(`<defs><clipPath id="${material}-${name}-region" clipPathUnits="userSpaceOnUse"><path class="muscle-region-shape" d="${region}"/><path d="${region}" transform="translate(220 0) scale(-1 1)"/></clipPath></defs><g class="body-muscle-art ${tone}" clip-path="url(#${material}-${name}-region)" data-body-muscle="${escape(name)}" data-body-state="${escape([tone,group.primary,group.secondary,change?.label||''].join('|'))}" data-body-selected="${name===selected}" aria-hidden="true">${shapes}</g>`);

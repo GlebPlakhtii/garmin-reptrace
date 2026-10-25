@@ -1,4 +1,4 @@
-/* Animate decorative anatomy only. The separate SVG controls stay stationary. */
+/* Pulse decorative anatomy on map updates. Borders and hit targets stay fixed. */
 export function createBodyMotion() {
   let previous = new Map(), previousRoute = '', hovered = null, artwork = [];
   const setHovered = name => {
@@ -10,12 +10,16 @@ export function createBodyMotion() {
     for (const animation of running.values()) animation.cancel();
     running.clear();
   };
-  const play = (node, frames, delay = 0, duration = 520) => {
+  const pulse = node => {
     if (typeof node.animate !== 'function') return;
     running.get(node)?.cancel();
-    const animation = node.animate(frames, {
-      duration, delay, easing: 'cubic-bezier(.22, .8, .3, 1)', fill: 'backwards',
-    });
+    const rest = `path("${node.dataset.muscleRest}")`, flexed = `path("${node.dataset.muscleFlexed}")`;
+    const animation = node.animate([
+      {d: rest, offset: 0, easing: 'cubic-bezier(.4, 0, .2, 1)'},
+      {d: flexed, offset: .42},
+      {d: flexed, offset: .52, easing: 'cubic-bezier(.4, 0, .2, 1)'},
+      {d: rest, offset: 1},
+    ], {duration: 900, easing: 'linear', fill: 'backwards'});
     running.set(node, animation);
     const clean = () => { if (running.get(node) === animation) running.delete(node); };
     animation.finished.then(clean, clean);
@@ -25,50 +29,28 @@ export function createBodyMotion() {
     if (route !== previousRoute) { finish(); previous = new Map(); previousRoute = route; hovered = null; }
     if (reduced) finish();
     const next = new Map();
+    let changed = false;
     artwork = [];
     for (const figure of root.querySelectorAll('.body-map-svg')) {
       const context = figure.dataset.bodyContext;
       const muscles = [...figure.querySelectorAll('.body-muscle-art[data-body-muscle]')];
       artwork.push(...muscles);
-      muscles.forEach((node, index) => {
+      for (const node of muscles) {
         const key = `${figure.dataset.bodyKey}:${node.dataset.bodyMuscle}`;
-        const state = {context, value: node.dataset.bodyState, selected: node.dataset.bodySelected === 'true'};
+        const state = {context, value: node.dataset.bodyState};
         const before = previous.get(key);
         next.set(key, state);
-        if (reduced) return;
-        if (before && before.selected !== state.selected) {
-          const paths = node.querySelectorAll('[data-muscle-rest]');
-          for (const path of paths) {
-            const rest = path.dataset.muscleRest, flexed = path.dataset.muscleFlexed;
-            play(path, [
-              {d: `path("${before.selected ? flexed : rest}")`},
-              {d: `path("${state.selected ? flexed : rest}")`},
-            ], 0, 340);
-          }
-        }
-        if (!before || before.context !== context || before.value !== state.value) {
-          // Each anatomical piece has its own centre, including the mirrored
-          // left/right muscles. Never clip the whole bilateral group or its controls.
-          for (const piece of node.querySelectorAll('.body-muscle-piece')) play(piece, [
-            {clipPath: 'circle(0% at 50% 50%) fill-box'},
-            {clipPath: 'circle(75% at 50% 50%) fill-box'},
-          ], Math.min(index * 18, 110));
-        } else if (state.selected && !before.selected) {
-          // A centre-out wash travels over the newly selected muscle; the
-          // underlying anatomy stays fully visible, with a persistent selected tint.
-          for (const piece of node.querySelectorAll('.body-muscle-piece')) {
-            const glow = piece.querySelector('.muscle-selection-glow');
-            if (glow) play(glow, [
-              {clipPath: 'circle(0% at 50% 50%) fill-box', opacity: 0},
-              {clipPath: 'circle(45% at 50% 50%) fill-box', opacity: .24, offset: .45},
-              {clipPath: 'circle(75% at 50% 50%) fill-box', opacity: .16},
-            ]);
-          }
-        }
-      });
+        if (!before || before.context !== context || before.value !== state.value) changed = true;
+      }
     }
+    changed ||= previous.size !== next.size;
     previous = next;
     setHovered(hovered);
+    // A measurement/week update pulses every muscle together. Selection alone
+    // never changes geometry, and every pulse settles at the original full size.
+    if (!reduced && changed) {
+      for (const node of artwork) for (const path of node.querySelectorAll('[data-muscle-rest]')) pulse(path);
+    }
   }
   return {update, finish, setHovered};
 }

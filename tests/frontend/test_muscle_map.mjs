@@ -175,7 +175,7 @@ test('muscle flex rounds the belly while preserving tips and curve topology',()=
  const hitPaths=html=>[...html.matchAll(/<path d="([^"]+)"[^>]*class="muscle-group-hit"/g)].map(match=>match[1]);
  assert.deepEqual(hitPaths(normal),hitPaths(selected),'selection does not move click targets');
  const chest=html=>html.split('data-body-muscle="Chest"')[1].split('data-body-muscle=')[0].match(/class="muscle-surface"[^>]* d="([^"]+)"/)[1];
- assert.notEqual(chest(normal),chest(selected),'selection changes the actual muscle outline');
+ assert.equal(chest(normal),chest(selected),'selection preserves normal size; update animation handles expansion');
 });
 
 test('full-sized muscles expand inside their own fixed group border and the body silhouette',()=>{
@@ -197,7 +197,7 @@ test('full-sized muscles expand inside their own fixed group border and the body
  const shape=selected.split('data-body-muscle="Chest"')[1].match(/data-muscle-rest="([^"]+)" data-muscle-flexed="([^"]+)"/);
  assert.equal(shape[1],'M75 84 C83 80 101 83 107 91 L107 119 C105 135 78 138 66 121 C61 112 64 96 75 84 Z','resting chest keeps its exact original size');
  const width=path=>{const xs=path.match(/-?\d+(?:\.\d+)?/g).map(Number).filter((_,i)=>i%2===0);return Math.max(...xs)-Math.min(...xs);};
- assert.ok(width(shape[2])>width(shape[1])*1.25,'selection expands from the original full size');
+ assert.ok(width(shape[2])>width(shape[1])*1.25,'update pulse can expand from the original full size');
 });
 
 function sample(path){
