@@ -124,8 +124,8 @@ export function exerciseColor(name,overrides={}) {
   return `color-mix(in srgb,${base} ${78+hash%23}%,var(--exercise-shade,#ffffff))`;
 }
 
-// Broad movement roles for the body map, not estimates of muscle activation.
-// The older primary-assignment charts deliberately retain their one-group totals.
+// Broad movement roles shared by the body map and volume history,
+// not estimates of muscle activation.
 // Reference: https://www.nasm.org/workout-exercise-guidance
 const MUSCLE_INVOLVEMENT = Object.fromEntries([
   [['Barbell Bench Press','Incline Bench Press','Incline Dumbbell Bench Press','Push Up'], ['Chest'], ['Shoulders','Triceps']],
@@ -226,12 +226,15 @@ export function matchingRepHistory(sets, reps) {
 export function volumeByWeek(sets, mode='exercise', overrides={}) {
   const groups=new Map();
   for(const s of sets){
-    const group=mode==='muscle'?(overrides[s.exercise]||DEFAULT_MUSCLES[s.exercise]||'Unassigned'):s.exercise;
-    const week=weekStart(s.date),key=week+'|'+group;
-    if(!groups.has(key))groups.set(key,{week,group,sets:0,reps:0,repsKnown:0,volume:0,volumeKnown:0});
-    const row=groups.get(key);row.sets++;
-    if(present(s.reps)){row.reps+=s.reps;row.repsKnown++;}
-    if(present(s.volume)){row.volume+=s.volume;row.volumeKnown++;}
+    const roles=exerciseMuscles(s.exercise,overrides);
+    const names=mode==='muscle'?[...roles.primary,...roles.secondary]:[s.exercise];
+    for(const group of names){
+      const week=weekStart(s.date),key=week+'|'+group;
+      if(!groups.has(key))groups.set(key,{week,group,sets:0,reps:0,repsKnown:0,volume:0,volumeKnown:0});
+      const row=groups.get(key);row.sets++;
+      if(present(s.reps)){row.reps+=s.reps;row.repsKnown++;}
+      if(present(s.volume)){row.volume+=s.volume;row.volumeKnown++;}
+    }
   }
   return [...groups.values()].map(r=>({...r,reps:r.repsKnown?r.reps:null,volume:r.volumeKnown?r.volume:null})).sort((a,b)=>b.week.localeCompare(a.week)||b.sets-a.sets||a.group.localeCompare(b.group));
 }

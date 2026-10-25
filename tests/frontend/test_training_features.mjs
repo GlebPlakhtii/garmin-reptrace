@@ -6,10 +6,11 @@ test('matching rep progress excludes other rep bands and missing loads, grouping
  const history=matchingRepHistory([row(1,'2026-10-01'),row(1,'2026-10-01',85),row(2,'2026-10-02',100,1),row(3,'2026-10-03',null),row(4,'2026-10-04',0)],5);
  assert.deepEqual(history.map(h=>h.weight),[85,0]);assert.equal(history[0].sets,2);
 });
-test('weekly primary-muscle totals count sets once and retain incomplete coverage',()=>{
+test('weekly muscle involvement totals overlap and retain incomplete coverage',()=>{
  const sets=[row(1,'2026-10-18'),row(2,'2026-10-19'),row(2,'2026-10-19',null,null),row(2,'2026-10-19',null,8,{exercise:'Unknown'})];
  const groups=volumeByWeek(sets,'muscle',{'Unknown':'Chest'});
- assert.equal(groups.reduce((n,r)=>n+r.sets,0),4);assert.equal(groups.length,2);
+ assert.equal(groups.reduce((n,r)=>n+r.sets,0),10);assert.equal(groups.length,6);
+ assert.equal(volumeByWeek(sets).reduce((n,r)=>n+r.sets,0),4);
  assert.equal(groups[0].week,'2026-10-19');assert.equal(groups[0].sets,3);assert.equal(groups[0].volumeKnown,1);assert.equal(groups[0].reps,13);assert.equal(groups[0].volume,400);
  assert.equal(volumeByWeek([sets[2]])[0].volume,null);
 });
@@ -85,4 +86,25 @@ test('incomplete sets cannot imply a comparable volume decrease',()=>{
  const result=compareWorkouts({sets},'1','2')[0];
  assert.equal(result.left.count,2);assert.equal(result.right.count,1);
  assert.equal(result.volumeChange,null);assert.equal(result.volumeComplete,false);
+});
+
+test('deadlift history credits glutes and secondary muscles with missing-aware totals',async()=>{
+ const {weeklyVolumeHistory}=await import('../../src/reptrace/web/static/model.mjs');
+ const sets=[row(1,'2026-10-20',100,5,{exercise:'Barbell Deadlift'}),row(1,'2026-10-20',null,3,{exercise:'Barbell Deadlift'})];
+ const range={from:'2026-10-19',to:'2026-11-01'};
+ const history=weeklyVolumeHistory(sets,'muscle',{},range);
+ assert.deepEqual(history.map(s=>s.group).sort(),['Back','Core','Glutes','Hamstrings','Quads']);
+ for(const series of history){
+  const [week,empty]=series.history;
+  assert.equal(week.sets,2);assert.equal(week.reps,8);assert.equal(week.volume,500);
+  assert.equal(week.volumeKnown,1);assert.equal(week.repsKnown,2);
+  assert.equal(empty.sets,0);assert.equal(empty.volume,0);assert.equal(empty.noRecords,true);
+ }
+ const overridden=weeklyVolumeHistory(sets,'muscle',{'Barbell Deadlift':'Back'},range);
+ assert.deepEqual(overridden.map(s=>s.group).sort(),['Back','Core']);
+ assert.equal(overridden.find(s=>s.group==='Back').history[0].sets,2);
+ const unassigned=weeklyVolumeHistory(sets,'muscle',{'Barbell Deadlift':'Unassigned'},range);
+ assert.deepEqual(unassigned.map(s=>s.group),['Unassigned']);
+ const [exercise]=weeklyVolumeHistory(sets,'exercise',{},range);
+ assert.equal(exercise.history[0].sets,2);assert.equal(exercise.history[0].volume,500);
 });

@@ -20,3 +20,16 @@ for(const mode of ['muscle','exercise'])for(const metric of ['volume','sets','re
   assert.doesNotMatch(output,/NaN|undefined/);
  });
 }
+
+test('secondary muscle history links to the contributing workout',()=>{
+ const a=app();a.state.volumeGroup.muscle='Triceps';
+ const output=a.volumePage(a.current());
+ assert.match(output,/<h3>Triceps<\/h3>/);
+ assert.match(output,/<div class="volume-week-workouts"><button class="text-link" data-session="a">/);
+ assert.match(output,/Muscle totals overlap/);
+});
+
+test('volume history renders an empty range',()=>{
+ const a=app();a.state.data.sets=[];a.state.data.workouts=[];
+ assert.match(a.volumePage(a.current()),/No volume history in the selected dates/);
+});
