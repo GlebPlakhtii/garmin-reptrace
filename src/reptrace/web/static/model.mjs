@@ -347,9 +347,12 @@ export function adjustedVolumeSets(sets, recovery = [], settings = {}) {
     const missingBodyweight=rule.bodyweight>0&&(!present(bodyWeight)||bodyWeight<=0);
     const unreviewed=rule.confidence==='unidentified'&&!rule.reviewed;
     const missingLoad=rule.bodyweight===0&&set.weight===0;
-    const valid=present(set.weight)&&set.weight>=0&&present(set.reps)&&set.reps>=0&&!missingBodyweight&&!unreviewed&&!missingLoad;
-    const load=valid?Math.max(0,(rule.assistance?-1:1)*set.weight*rule.loadCopies+(rule.bodyweight?bodyWeight*rule.bodyweight:0)):null;
-    return {...set,assistance:rule.recordedAssistance,volume:valid?load*set.reps*rule.multiplier:null,missingBodyweight,missingLoad,unreviewed};
+    // Only catalog-approved unweighted defaults may fill an unspecified added load.
+    const assumedUnloaded=set.weight==null&&rule.unloadedWhenUnspecified===true&&rule.bodyweight>0&&!rule.assistance&&!rule.recordedAssistance;
+    const externalLoad=assumedUnloaded?0:set.weight;
+    const valid=present(externalLoad)&&externalLoad>=0&&present(set.reps)&&set.reps>=0&&!missingBodyweight&&!unreviewed&&!missingLoad;
+    const load=valid?Math.max(0,(rule.assistance?-1:1)*externalLoad*rule.loadCopies+(rule.bodyweight?bodyWeight*rule.bodyweight:0)):null;
+    return {...set,assistance:rule.recordedAssistance,volume:valid?load*set.reps*rule.multiplier:null,missingBodyweight,missingLoad,unreviewed,assumedUnloaded:valid&&assumedUnloaded};
   });
 }
 

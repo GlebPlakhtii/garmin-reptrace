@@ -257,3 +257,16 @@ test('even a one-exercise muscle group requires explicit exercise selection for 
  assert.doesNotMatch(a.exercisesPage(a.current()),/data-metric="estimatedMax"/);
  assert.equal(a.state.metric,'volume');
 });
+
+test('Captain chair history explains an assumed unweighted adjusted volume',()=>{
+ const a=app();a.state.page='exercises';a.state.exerciseVolumeMode='adjusted';a.state.metric='volume';
+ a.state.selected="Captain's Chair Leg Raises";
+ a.state.data.sets=[{exercise:a.state.selected,date:'2026-10-23',time:'2026-10-23T10:00:00Z',sessionId:'b',weight:null,reps:15,volume:null,source:'manual'}];
+ a.state.data.recovery=[{date:'2026-10-22',bodyWeightKg:80}];
+ const view=a.current();
+ assert.equal(view.selected.volume,240);
+ const html=a.progressPanel(view.selected);
+ assert.match(html,/1 of 1 sets included/);
+ assert.match(html,/Bodyweight-only estimate where added load was unspecified/);
+ assert.doesNotMatch(html,/Some sets have no numeric load/);
+});

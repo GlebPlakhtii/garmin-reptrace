@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {adjustedVolumeSets,weeklyVolumeHistory,exerciseVolumeRule,DEFAULT_VOLUME_PROFILES,DEFAULT_MUSCLES} from '../../src/reptrace/web/static/model.mjs';
+import {adjustedVolumeSets,weeklyVolumeHistory,exerciseVolumeRule,recordedVolumeSets,DEFAULT_VOLUME_PROFILES,DEFAULT_MUSCLES} from '../../src/reptrace/web/static/model.mjs';
 const row=(exercise,weight=0,reps=10,date='2026-10-20')=>({exercise,weight,reps,date,volume:weight*reps,sessionId:'a'});
 test('bodyweight, added loads, assistance and machine factors produce distinct workload',()=>{
  const input=[row('Pull Up'),row('Pull Up',20),row('Push Up'),row('Sit Up'),row('Squat',100),row('Leg Press',100),row('Assisted Pull Up',30)];
@@ -67,4 +67,29 @@ test('custom load conventions override reviewed assumptions and legacy values re
  const sets=[row('Incline Dumbbell Bench Press',20),row('Single Arm Preacher Curl',10)];
  const settings={exercises:{'Incline Dumbbell Bench Press':{multiplier:1,bodyweight:0,loadCopies:1},'Single Arm Preacher Curl':{multiplier:2,bodyweight:0}}};
  assert.deepEqual(adjustedVolumeSets(sets,[],settings).map(s=>s.volume),[200,200]);
+});
+
+test('Captain chair estimates unweighted work for unspecified added load without rewriting the record',()=>{
+ const name="Captain's Chair Leg Raises";
+ const input=[row(name,null,15),row(name,0,15),row(name,10,15)];
+ const before=JSON.stringify(input);
+ const result=adjustedVolumeSets(input,[{date:'2026-10-19',bodyWeightKg:80}]);
+ // 80 kg × 0.16 moving-body fraction × 15 reps × 1.25 travel factor.
+ assert.deepEqual(result.map(s=>s.volume),[240,240,427.5]);
+ assert.deepEqual(result.map(s=>s.assumedUnloaded),[true,false,false]);
+ assert.equal(result[0].weight,null);
+ assert.equal(JSON.stringify(input),before);
+ assert.equal(recordedVolumeSets(input)[0].volume,null,'recorded load stays unknown');
+ const [week]=weeklyVolumeHistory(result,'exercise',{}, {from:'2026-10-19',to:'2026-10-25'})[0].history;
+ assert.equal(week.volume,907.5);
+});
+
+test('Captain chair still requires dated bodyweight and reps, and respects custom assistance',()=>{
+ const name="Captain's Chair Leg Raises";
+ const sets=[row(name,null,15),row(name,null,null),row(name,-1,15),row(name,NaN,15)];
+ assert.ok(adjustedVolumeSets(sets,[]).every(s=>s.volume===null));
+ assert.ok(adjustedVolumeSets(sets,[{date:'2026-10-21',bodyWeightKg:80}]).every(s=>s.volume===null),'future weigh-ins are not used');
+ assert.deepEqual(adjustedVolumeSets(sets,[],{bodyWeightKg:80}).map(s=>s.volume),[240,null,null,null]);
+ assert.equal(adjustedVolumeSets([sets[0]],[],{bodyWeightKg:80,exercises:{[name]:{assistance:true}}})[0].volume,null);
+ assert.equal(adjustedVolumeSets([row('Pull Up',null,15)],[],{bodyWeightKg:80})[0].volume,null,'other missing loads retain their existing semantics');
 });

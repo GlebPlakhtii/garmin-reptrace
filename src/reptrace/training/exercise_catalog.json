@@ -1061,8 +1061,9 @@
         "bodyweight": 0.16,
         "multiplier": 1.25,
         "confidence": "calibrate",
-        "rationale": "Supported trunk; legs rotate upward. Uses 16% work-equivalent body mass over a 0.50 m reference path, allowing for lower-limb mass and smaller leg-centre-of-mass rise. Bent knees reduce the work further.",
-        "assistance": false
+        "rationale": "Supported trunk; legs rotate upward. Uses 16% work-equivalent body mass over a 0.50 m reference path, allowing for lower-limb mass and smaller leg-centre-of-mass rise. Bent knees reduce the work further. When added weight is unspecified, estimate the unweighted movement; an explicitly recorded added load is included.",
+        "assistance": false,
+        "unloadedWhenUnspecified": true
       }
     },
     "Cable Crunch": {

@@ -79,7 +79,8 @@ function volumeCoverage(rows) {
   const reasons=[];
   if(rows.some(r=>r.missingBodyweight))reasons.push('Body weight is missing for some movements. Add dated weigh-ins in Recovery or a fallback in Preferences.');
   if(rows.some(r=>r.unreviewed))reasons.push('Some movement profiles need review in Preferences.');
-  if(rows.some(r=>!present(r.weight)||!present(r.reps)))reasons.push('Some sets have no numeric load or rep count; see their source notes.');
+  if(rows.some(r=>(!present(r.weight)&&!r.assumedUnloaded)||!present(r.reps)))reasons.push('Some sets have no numeric load or rep count; see their source notes.');
+  if(rows.some(r=>r.assumedUnloaded))reasons.push('Bodyweight-only estimate where added load was unspecified.');
   if(rows.some(r=>r.missingLoad))reasons.push('Some zero-load movements need their resistance convention identified.');
   if(recordedExerciseVolume()&&rows.some(r=>r.assistance))reasons.push('Assistance loads are excluded from recorded resistance volume.');
   return `${known} of ${rows.length} sets included. ${reasons.join(' ')}`;
