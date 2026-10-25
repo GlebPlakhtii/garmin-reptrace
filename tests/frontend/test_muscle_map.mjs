@@ -5,15 +5,15 @@ import {renderMuscleMap,muscleChange,flexMusclePath} from '../../src/reptrace/we
 const set=(exercise,extra={})=>({exercise,date:'2026-10-23',sessionId:'a',weight:80,reps:10,volume:800,source:'garmin',...extra});
 const group=(summary,name)=>summary.groups.find(g=>g.name===name);
 
-test('fixed group borders belong to the clipping envelope while hit regions remain combined',()=>{
+test('expanding selection outlines match the visible muscle shapes while hit regions stay fixed',()=>{
  const html=renderMuscleMap({summary:muscleWeekSummary([set('Squat')],'2026-10-19'),weeks:['2026-10-19'],selected:'Core',includeSecondary:true,asOf:'2026-10-24'});
  for(const [side,name] of [['front','Core'],['front','Quads'],['back','Back']]){
   const svg=html.match(new RegExp(`<svg[^>]*data-body-key="body-work-${side}"[\\s\\S]*?<\\/svg>`))[0];
-  const boundary=svg.split(`id="body-work-${side}-${name}-boundary"`)[1].split('</clipPath>')[0];
-  const shapes=[...boundary.matchAll(/<path[^>]* d="([^"]+)"/g)].map(match=>match[1]);
+  const art=svg.split(`data-body-muscle="${name}"`)[1].split('data-body-muscle=')[0];
+  const shapes=[...art.matchAll(/<path class="muscle-surface"[^>]* d="([^"]+)"/g)].map(match=>match[1]);
   const control=svg.match(new RegExp(`<g id="map-${side}-${name}"[\\s\\S]*?<\\/g>`))[0];
-  const outlines=[...control.matchAll(/<path d="([^"]+)"[^>]*class="muscle-group-area"/g)].map(match=>match[1]);
-  assert.ok(outlines.every(path=>shapes.includes(path)),`${side} ${name} border is part of its fixed group boundary`);
+  const outlines=[...control.matchAll(/<path [^>]* d="([^"]+)"[^>]*class="muscle-group-area"/g)].map(match=>match[1]);
+  assert.deepEqual(outlines,shapes,`${side} ${name} highlight follows the expanded muscle`);
   assert.equal((control.match(/class="muscle-group-hit"/g)||[]).length,2,'seams still belong to the same hit region');
  }
 });
@@ -179,19 +179,20 @@ test('muscle flex rounds the belly while preserving tips and curve topology',()=
  assert.notEqual(chest(normal),chest(selected),'selection changes the actual muscle outline');
 });
 
-test('full-sized resting muscles expand inside unchanged whole-group boundaries',()=>{
+test('full-sized muscles expand within the original body silhouette, with the body edge drawn above them',()=>{
  const render=selected=>renderMuscleMap({summary:muscleWeekSummary([],'2026-10-19'),weeks:['2026-10-19'],selected,includeSecondary:true,asOf:'2026-10-24'});
  const normal=render('all'),selected=render('Chest');
- const boundaries=html=>[...html.matchAll(/<path class="muscle-boundary-shape" d="([^"]+)"/g)].map(match=>match[1]);
- const outlines=html=>[...html.matchAll(/<path d="([^"]+)"[^>]*class="muscle-group-area"/g)].map(match=>match[1]);
- assert.deepEqual(boundaries(normal),boundaries(selected));
- assert.deepEqual(outlines(normal),outlines(selected),'the selection border never expands');
+ const shell=html=>html.match(/class="body-outline"[^>]* d="([^"]+)"/)[1];
+ assert.equal(shell(normal),shell(selected),'the body never expands');
  for(const html of [normal,selected]){
-  assert.equal((html.match(/class="body-muscle-art [^"]+" clip-path="url\(#[^)]+-boundary\)"/g)||[]).length,(html.match(/data-body-muscle=/g)||[]).length,'every complete muscle group sits inside a fixed clip');
-  assert.match(html,/clip-path="url\(#body-work-front-body-boundary\)"/,'expansion also stays within the body silhouette');
+  const body=html.match(/<clipPath id="body-work-front-body-boundary" clipPathUnits="userSpaceOnUse"><path d="([^"]+)"/)[1];
+  assert.equal(body,shell(html),'containment uses the actual body shape');
+  assert.match(html,/class="body-muscle-art [^"]+" clip-path="url\(#body-work-front-body-boundary\)" data-body-muscle="Chest"/);
+  assert.match(html,/<g clip-path="url\(#body-work-front-body-boundary\)">[\s\S]*class="muscle-group-area"[\s\S]*<\/g><path class="body-containment-outline"/,'muscles and their highlights share body containment; fixed body edge is above both');
+  assert.doesNotMatch(html,/id="body-work-front-Chest-boundary"/,'no artificial chest envelope cuts expansion short');
  }
  const shape=selected.split('data-body-muscle="Chest"')[1].match(/data-muscle-rest="([^"]+)" data-muscle-flexed="([^"]+)"/);
  assert.equal(shape[1],'M75 84 C83 80 101 83 107 91 L107 119 C105 135 78 138 66 121 C61 112 64 96 75 84 Z','resting chest keeps its exact original size');
  const width=path=>{const xs=path.match(/-?\d+(?:\.\d+)?/g).map(Number).filter((_,i)=>i%2===0);return Math.max(...xs)-Math.min(...xs);};
- assert.ok(width(shape[2])>width(shape[1])*1.25,'the deformation is visibly stronger before clipping');
+ assert.ok(width(shape[2])>width(shape[1])*1.25,'selection expands from the original full size');
 });

@@ -703,3 +703,7 @@ summary:focus-visible,textarea:focus-visible{outline:3px solid var(--syntax-nav,
 .recovery-review-body{padding:8px 30px 20px}.recovery-review-body h3{font-size:15px;margin-top:24px}.operation-preview{white-space:pre-wrap;overflow-wrap:anywhere;font-family:inherit;font-size:13px;line-height:1.7;background:var(--paper);border:1px solid var(--line);border-radius:9px;padding:16px;max-height:40vh;overflow:auto}
 .recovery-review .dialog-footer{background:var(--white);gap:12px;flex-wrap:wrap}.recovery-review .dialog-heading h2{overflow-wrap:anywhere}
 @media(max-width:760px){.operations-list{grid-template-columns:1fr;padding:0 16px 16px}.operation-card{padding:16px}.recovery-review-body{padding:8px 20px 16px}.recovery-review .dialog-footer .button{flex:1}}
+
+/* Keep the fixed body edge visible above expanding, body-clipped muscles. */
+.body-map-svg .body-containment-outline{fill:none;stroke:#a6e7fc;stroke-width:1.1;stroke-opacity:.85;pointer-events:none;filter:none}
+[data-theme="daylight"] .body-map-svg .body-containment-outline{stroke:#477184}
