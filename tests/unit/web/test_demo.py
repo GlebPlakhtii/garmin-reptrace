@@ -55,7 +55,7 @@ class DemoTests(unittest.TestCase):
         today = datetime(2024, 4, 10, 9, tzinfo=timezone.utc)
         records = sample_records(today)
         self.assertEqual(records, sample_records(today))
-        self.assertEqual(len(records["ActivitySummary"]), 48)
+        self.assertEqual(len(records["ActivitySummary"]), 72)
         self.assertEqual(len(records["StrengthSet"]), 720)
         self.assertEqual(len(records["SleepSummary"]), 100)
         self.assertTrue(

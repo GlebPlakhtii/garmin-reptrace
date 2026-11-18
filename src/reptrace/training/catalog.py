@@ -24,3 +24,18 @@ MUSCLE_INVOLVEMENT = {
 DEFAULT_VOLUME_PROFILES = {
     name: entry["volume"] for name, entry in EXERCISES.items() if "volume" in entry
 }
+
+
+def recorded_exercise_mappings(rows):
+    """Infer a mapping for new sets only when recorded categories agree."""
+    mappings = {}
+    for row in rows:
+        name = row.get("Exercise")
+        if not name or not row.get("ExerciseCategory") or not row.get("last"):
+            continue
+        mapping = (row["ExerciseCategory"], row["last"])
+        if name in mappings and mappings[name] != mapping:
+            mappings[name] = None
+        else:
+            mappings[name] = mapping
+    return {name: mapping for name, mapping in mappings.items() if mapping is not None}

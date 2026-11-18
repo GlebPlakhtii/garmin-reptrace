@@ -8,6 +8,7 @@ from reptrace.reports.facts import (
     weekly_facts,
     weekly_text,
     session_facts,
+    session_text,
     ReportWriter,
 )
 from reptrace.telegram.bot import Bot, split_text
@@ -62,6 +63,86 @@ def records():
 
 
 class ReportMathTests(unittest.TestCase):
+    def test_assistance_records_use_completed_sets_and_the_lowest_setting(self):
+        for name, settings in [
+            ("Assisted Dip", {}),
+            ("Custom machine", {"exercises": {"Custom machine": {"assistance": True}}}),
+        ]:
+            with self.subTest(name=name):
+                data = records()
+                data["volumeSettings"] = settings
+                data["sets"] = [
+                    row("a", "2026-10-11", 20, exercise=name),
+                    row("a", "2026-10-11", 10, exercise=name),
+                    row("b", "2026-10-13", 30, exercise=name),
+                    row("b", "2026-10-13", 0, reps=0, exercise=name),
+                ]
+                self.assertEqual(weekly_facts(data, "2026-10-21")["loadRecords"], [])
+                data["sets"][-1]["reps"] = 10
+                facts = weekly_facts(data, "2026-10-21")
+                for key in ("loadRecords", "matchingRepRecords"):
+                    self.assertEqual(len(facts[key]), 1)
+                    self.assertEqual((facts[key][0]["before"], facts[key][0]["after"]), (10, 0))
+                self.assertIn("10 → 0 kg assistance", weekly_text(facts))
+                comparison = session_facts(data, "b")["exercises"][0]["comparisonToPrevious"]
+                self.assertEqual(comparison["topLoadChange"], -10)
+
+
+    def test_session_adjusts_current_history_and_workload_without_changing_records(self):
+        data = records()
+        data["volumeSettings"] = {"exercises": {
+            "Barbell Bench Press": {"multiplier": 1.5, "loadCopies": 2},
+        }}
+        original = copy.deepcopy(data)
+        facts = session_facts(data, "c")
+        self.assertEqual(facts["volumeMode"], "adjusted")
+        self.assertEqual(facts["totals"]["volume"], 2550)  # 85 * 2 * 10 * 1.5
+        comparison = facts["exercises"][0]["comparisonToPrevious"]
+        self.assertEqual(comparison["before"]["volume"], 2640)
+        self.assertEqual(comparison["volumeChange"], -90)
+        self.assertEqual(comparison["after"]["topSet"]["weight"], 85)
+        self.assertEqual(facts["last28Days"]["volume"], 7590)
+        self.assertIn("adjusted volume", session_text(facts))
+        self.assertEqual(data, original)
+
+    def test_bodyweight_uses_historical_measurements_and_assistance_settings(self):
+        data = records()
+        data["sets"] = [
+            row("b", "2026-10-13", 20, 10, exercise="Pull Up"),
+            row("c", "2026-10-20", 10, 10, exercise="Pull Up"),
+        ]
+        data["recovery"] = [
+            {"date": "2026-10-12", "bodyWeightKg": 80},
+            {"date": "2026-10-19", "bodyWeightKg": 82},
+            {"date": "2026-10-21", "bodyWeightKg": 100},
+        ]
+        data["volumeSettings"] = {"exercises": {"Pull Up": {"assistance": True}}}
+        facts = session_facts(data, "c")
+        comparison = facts["exercises"][0]["comparisonToPrevious"]
+        self.assertEqual(comparison["before"]["volume"], 675)  # (80 - 20) * 10 * 1.125
+        self.assertEqual(comparison["after"]["volume"], 810)  # (82 - 10) * 10 * 1.125
+        self.assertEqual(comparison["volumeChange"], 135)
+
+    def test_missing_bodyweight_and_unreviewed_exercises_remain_unavailable(self):
+        data = records()
+        data["sets"] = [
+            row("c", "2026-10-20", 0, 10, exercise="Pull Up"),
+            row("c", "2026-10-20", 20, 10, exercise="Custom movement"),
+            row("c", "2026-10-20", 80, None),
+        ]
+        facts = session_facts(data, "c")
+        self.assertIsNone(facts["totals"]["volume"])
+        self.assertEqual(facts["totals"]["volumeKnown"], 0)
+        data["volumeSettings"] = {"bodyWeightKg": 80}
+        facts = session_facts(data, "c")
+        self.assertEqual(facts["totals"]["volume"], 900)
+        self.assertEqual(facts["totals"]["volumeKnown"], 1)
+
+    def test_adjustment_failure_does_not_silently_fall_back_to_recorded_volume(self):
+        with patch("reptrace.reports.volume.subprocess.run", side_effect=OSError):
+            with self.assertRaisesRegex(RuntimeError, "Adjusted-volume calculations unavailable"):
+                session_facts(records(), "c")
+
     def test_previous_full_week_excludes_current_and_counts_actual_same_load_progress(
         self,
     ):
@@ -131,13 +212,14 @@ class ReportMathTests(unittest.TestCase):
         response.read.return_value = json.dumps(result).encode()
         with patch("urllib.request.urlopen", return_value=response) as request:
             self.assertEqual(
-                ReportWriter("private-key").write({"sets": 3}), "Useful report."
+                ReportWriter("private-key").write({"sets": 3, "volumeMode": "adjusted"}), "Useful report."
             )
             body = json.loads(request.call_args.args[0].data)
             self.assertFalse(body["store"])
             self.assertEqual(body["model"], "gpt-6-sol")
             self.assertNotIn("private-key", body["input"])
             self.assertEqual(body["reasoning"]["effort"], "medium")
+            self.assertIn("Call it adjusted volume", body["instructions"])
         with patch("urllib.request.urlopen", side_effect=OSError("private-key")):
             with self.assertRaises(RuntimeError) as caught:
                 ReportWriter("private-key").write({})

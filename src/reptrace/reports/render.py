@@ -42,13 +42,14 @@ def volume_comparisons(facts):
 
 
 def volume_svg(facts):
+    label = "Adjusted" if facts.get("volumeMode") == "adjusted" else "Recorded"
     rows = volume_comparisons(facts)
     height = 70 + len(rows) * 64
     maximum = max(
         [r[k] for r in rows for k in ("before", "after") if known(r[k])] + [1]
     )
     parts = [
-        f'<svg class="volume-chart" viewBox="0 0 1000 {height}" role="img" aria-label="Recorded exercise volume, previous and current session"><title>Recorded volume in kg × reps; missing measurements are excluded.</title>'
+        f'<svg class="volume-chart" viewBox="0 0 1000 {height}" role="img" aria-label="{label} exercise volume, previous and current session"><title>{label} volume in kg × reps; unavailable values are excluded.</title>'
     ]
     for i, row in enumerate(rows):
         y = 30 + i * 64
@@ -222,14 +223,17 @@ def plan_review_html(facts):
 
 def render_report_html(facts, analysis="", model="gpt-6-sol", status="unavailable"):
     w, t = facts["workout"], facts["totals"]
+    adjusted = facts.get("volumeMode") == "adjusted"
+    volume_label = "Adjusted volume" if adjusted else "Recorded volume"
+    volume_note = facts.get("volumeNote") if adjusted else "kg·reps = external load × reps. Bodyweight is not added. Missing values are excluded; a larger total is not automatically better."
     stamp = datetime.now(timezone.utc).strftime("%d %b %Y %H:%M UTC")
     metrics = [
         ("Recorded sets", fmt(t["sets"], 0), f"{len(facts['exercises'])} exercises"),
         ("Recorded reps", fmt(t["reps"], 0), "Missing reps excluded"),
         (
-            "Recorded volume",
+            volume_label,
             fmt(t["volume"], 0) + " kg·reps",
-            f"{t['volumeKnown']}/{t['sets']} sets have load and reps",
+            f"{t['volumeKnown']}/{t['sets']} sets with {'an estimate' if adjusted else 'load and reps'}",
         ),
         (
             "Duration",
@@ -246,9 +250,9 @@ def render_report_html(facts, analysis="", model="gpt-6-sol", status="unavailabl
         + "</div>"
     )
     performance = (
-        '<section id="performance"><h2>Performance, exercise by exercise</h2><div class="panel"><h3>Recorded volume vs previous same-type session</h3><div class="legend"><span><i class="previous"></i>Previous occurrence</span><span><i class="current"></i>This session</span></div><div class="scroll">'
+        f'<section id="performance"><h2>Performance, exercise by exercise</h2><div class="panel"><h3>{volume_label} vs previous same-type session</h3><div class="legend"><span><i class="previous"></i>Previous occurrence</span><span><i class="current"></i>This session</span></div><div class="scroll">'
         + volume_svg(facts)
-        + '</div><p class="caption">kg·reps = external load × reps. Bodyweight is not added. Missing values are excluded; a larger total is not automatically better.</p></div><div class="exercise-grid" style="margin-top:18px">'
+        + f'</div><p class="caption">{esc(volume_note)}</p></div><div class="exercise-grid" style="margin-top:18px">'
     )
     for e in facts["exercises"]:
         points = [
@@ -257,7 +261,7 @@ def render_report_html(facts, analysis="", model="gpt-6-sol", status="unavailabl
         ] + [(w["date"], total(s.get("reps") for s in e["sets"]))]
         comparison = e.get("comparisonToPrevious")
         change = (
-            f"Reps {signed(comparison['repChange'])} · recorded volume {signed(comparison['volumeChange'])} kg·reps vs {comparison['date']}"
+            f"Reps {signed(comparison['repChange'])} · {volume_label.lower()} {signed(comparison['volumeChange'])} kg·reps vs {comparison['date']}"
             if comparison
             else "No previous comparable session recorded."
         )
@@ -266,7 +270,7 @@ def render_report_html(facts, analysis="", model="gpt-6-sol", status="unavailabl
             + trend_svg(
                 points, PALETTE["blue"], "reps", e["exercise"] + " total recorded reps"
             )
-            + '<div class="scroll"><table><thead><tr><th>Set</th><th>Load</th><th>Reps</th><th>kg·reps</th><th>Est. 1RM</th><th>Rest</th></tr></thead><tbody>'
+            + f'<div class="scroll"><table><thead><tr><th>Set</th><th>Load</th><th>Reps</th><th>{volume_label} (kg·reps)</th><th>Est. 1RM</th><th>Rest</th></tr></thead><tbody>'
         )
         for i, s in enumerate(e["sets"]):
             performance += f'<tr><td>{i + 1}</td><td class="load">{esc(load_label(e["exercise"], s.get("weight")))}</td><td class="reps">{fmt(s.get("reps"), 0)}</td><td>{fmt(s.get("volume"), 0)}</td><td>{fmt(s.get("estimatedMax"))} kg</td><td>{fmt(s.get("rest"))} sec</td></tr>'
@@ -341,6 +345,7 @@ def render_report_preview(
     current_label="This session",
 ):
     w, t = facts["workout"], facts["totals"]
+    adjusted = facts.get("volumeMode") == "adjusted"
     rows = volume_comparisons(facts)
     height = 540 + len(rows) * 88 + 245
     image = Image.new("RGB", (1200, height), PALETTE["bg"])
@@ -370,14 +375,14 @@ def render_report_preview(
     metrics = [
         ("SETS", fmt(t["sets"], 0), "blue"),
         ("REPS", fmt(t["reps"], 0), "mint"),
-        ("KG·REPS", fmt(t["volume"], 0), "purple"),
+        ("ADJUSTED KG·REPS" if adjusted else "KG·REPS", fmt(t["volume"], 0), "purple"),
     ]
     for i, (label, number, color) in enumerate(metrics):
         x = 48 + i * 372
         draw.rounded_rectangle((x, 220, x + 350, 323), radius=14, fill=PALETTE["panel"])
         draw.text((x + 20, 236), label, font=tiny, fill=PALETTE["muted"])
         draw.text((x + 20, 270), number, font=value, fill=PALETTE[color])
-    draw.text((48, 368), "EXERCISE VOLUME", font=small, fill=PALETTE["text"])
+    draw.text((48, 368), "ADJUSTED VOLUME · ESTIMATE" if adjusted else "EXERCISE VOLUME", font=small, fill=PALETTE["text"])
     draw.text((48, 410), previous_label, font=tiny, fill=PALETTE["purple"])
     draw.text((345, 410), current_label, font=tiny, fill=PALETTE["mint"])
     draw.text((910, 410), "kg × reps", font=tiny, fill=PALETTE["muted"])

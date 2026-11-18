@@ -4,8 +4,8 @@ from collections import defaultdict
 from datetime import date, timedelta
 from html import escape
 
-from reptrace.training.metrics import known, total
-from reptrace.reports.facts import week_metrics, compare_sessions, fmt, signed
+from reptrace.training.metrics import known, total, is_assisted
+from reptrace.reports.facts import week_metrics, compare_sessions, fmt, signed, load_record
 from reptrace.reports.render import (
     CSS,
     analysis_html,
@@ -50,10 +50,20 @@ def monthly_facts(data, today=None, month=None):
         if previous_start.isoformat() <= r["date"] <= previous_end.isoformat()
     ]
     exercises = []
+    records = []
     for name in sorted({r["exercise"] for r in rows}):
         now = [r for r in rows if r["exercise"] == name]
         before = [r for r in old if r["exercise"] == name]
-        comparison = compare_sessions(now, before)
+        assisted = is_assisted(name, data.get("volumeSettings", {}))
+        comparison = compare_sessions(now, before, assisted)
+        earlier = (
+            r
+            for r in all_rows
+            if r["exercise"] == name and r["date"] < start.isoformat()
+        )
+        record = load_record(name, earlier, now, assisted)
+        if record:
+            records.append(record)
         exercises.append(
             {
                 "exercise": name,
@@ -83,35 +93,6 @@ def monthly_facts(data, today=None, month=None):
             }
         )
         d += timedelta(days=7)
-    records = []
-    for e in exercises:
-        earlier = [
-            r
-            for r in all_rows
-            if r["exercise"] == e["exercise"]
-            and r["date"] < start.isoformat()
-            and known(r.get("weight"))
-            and r["weight"] > 0
-        ]
-        latest = [
-            r
-            for r in rows
-            if r["exercise"] == e["exercise"]
-            and known(r.get("weight"))
-            and r["weight"] > 0
-        ]
-        if (
-            earlier
-            and latest
-            and max(r["weight"] for r in latest) > max(r["weight"] for r in earlier)
-        ):
-            records.append(
-                {
-                    "exercise": e["exercise"],
-                    "before": max(r["weight"] for r in earlier),
-                    "after": max(r["weight"] for r in latest),
-                }
-            )
     return {
         "month": start.strftime("%Y-%m"),
         "from": start.isoformat(),
@@ -127,12 +108,14 @@ def monthly_facts(data, today=None, month=None):
         "dataQuality": {
             "currentZeroWeightedLoads": sum(
                 r.get("weight") == 0
+                and not is_assisted(r["exercise"], data.get("volumeSettings", {}))
                 and r["exercise"].casefold()
                 not in ("pull up", "push up", "dip", "sit up", "leg raise")
                 for r in rows
             ),
             "priorZeroWeightedLoads": sum(
                 r.get("weight") == 0
+                and not is_assisted(r["exercise"], data.get("volumeSettings", {}))
                 and r["exercise"].casefold()
                 not in ("pull up", "push up", "dip", "sit up", "leg raise")
                 for r in old
@@ -246,10 +229,10 @@ def render_monthly_html(facts, analysis="", model="gpt-6-sol", status="unavailab
     body += '</div></section><section class="panel"><h2>Established-load records</h2>'
     body += (
         "".join(
-            f"<p>{esc(r['exercise'])}: {fmt(r['before'])} → {fmt(r['after'])} kg</p>"
+            f"<p>{esc(r['exercise'])}: {fmt(r['before'])} → {fmt(r['after'])} kg{' assistance' if r.get('metric') == 'assistance' else ''}</p>"
             for r in facts["loadRecords"]
         )
-        or '<p class="muted">No higher established load record in the selected month.</p>'
+        or '<p class="muted">No new load or assistance record in the selected month.</p>'
     )
     body += (
         "</section><footer>Calendar-month report. Missing values remain missing. First-ever appearances are not claimed as personal records. Watch readings do not establish causation. "

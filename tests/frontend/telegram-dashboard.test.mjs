@@ -52,3 +52,20 @@ test('Every dashboard view handles empty data and CSV preserves formula protecti
   assert.match(csv.text,/'=HYPERLINK/);
   assert.equal(csv.count,1);
 });
+
+test('overview includes running and keeps the fixed consistency window independent of the range',()=>{
+  const input={...data,runs:[
+    {id:'r1',date:'2026-10-20',distanceKm:6,movingSeconds:1800},
+    {id:'r2',date:'2026-10-01',distanceKm:12,movingSeconds:null},
+  ]};
+  const a={view:'overview',source:'all',from_date:'2026-10-19',offset:0,limit:20};
+  const result=dashboard(input,a,'2026-10-25');
+  assert.equal(result.sessions,2);
+  assert.equal(result.strengthSessions,1);
+  assert.equal(result.running.pace,300);
+  assert.deepEqual(result.rows.at(-1),{date:'2026-10-19',count:2,strength:1,running:1});
+  assert.equal(result.rows.find(w=>w.date==='2026-09-28').count,2);
+  const manual=dashboard(input,{...a,from_date:'',source:'manual'},'2026-10-25');
+  assert.equal(manual.sessions,1);
+  assert.equal(manual.running.count,0);
+});

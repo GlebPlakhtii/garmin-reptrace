@@ -93,3 +93,12 @@ test('Captain chair still requires dated bodyweight and reps, and respects custo
  assert.equal(adjustedVolumeSets([sets[0]],[],{bodyWeightKg:80,exercises:{[name]:{assistance:true}}})[0].volume,null);
  assert.equal(adjustedVolumeSets([row('Pull Up',null,15)],[],{bodyWeightKg:80})[0].volume,null,'other missing loads retain their existing semantics');
 });
+
+test('an unlisted assistance machine keeps the same load direction after reviewing its factors',()=>{
+  const name='Custom Assisted Chin Machine',row={exercise:name,date:'2026-11-01',weight:25,reps:6};
+  const defaults=exerciseVolumeRule(name);
+  assert.equal(defaults.assistance,true);
+  const settings={bodyWeightKg:75,exercises:{[name]:{...defaults,bodyweight:1,reviewed:true}}};
+  assert.equal(adjustedVolumeSets([row],[],settings)[0].volume,300);
+  assert.equal(recordedVolumeSets([row],settings)[0].volume,null);
+});

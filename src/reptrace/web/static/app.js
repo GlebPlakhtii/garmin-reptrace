@@ -1,4 +1,4 @@
-import {estimatedStrengthHistory, recordedVolumeSets, exerciseMuscles, compareExerciseStack, muscleColor, exerciseColor, isAssistedExercise, adjustedVolumeSets, exerciseVolumeRule, present, sumKnown, exerciseSummaries, filterData, weeklyWorkouts, chartPoints, csvForSets, csvForRecovery, MUSCLE_GROUPS, DEFAULT_MUSCLES, matchingRepHistory, volumeByWeek, weeklyVolumeHistory, weekStart, plateauSignals, compareWorkouts, recoveryComparison, goalProgress, presetRange, chartDateRange, timeAxisDates, muscleMapWeeks, muscleWeekSummary, muscleWeekComparison} from './model.mjs'; import {renderMuscleMap} from './muscle-map.mjs'; import {recoveryPage as renderOperationHistory,recoveryReview} from './recovery.mjs';
+import {runningSummary, runningTime, paceLabel, runPace} from "./running.mjs"; import {renderRunningDashboard,ensureRunningDetail,installRunning} from "./running-view.mjs"; import {renderTimeBudget, installTimeBudget} from "./time-budget.mjs"; import {estimatedStrengthHistory, recordedVolumeSets, exerciseMuscles, compareExerciseStack, muscleColor, exerciseColor, isAssistedExercise, adjustedVolumeSets, exerciseVolumeRule, present, sumKnown, exerciseSummaries, filterData, weeklyWorkouts, chartPoints, csvForSets, csvForRecovery, MUSCLE_GROUPS, DEFAULT_MUSCLES, matchingRepHistory, volumeByWeek, weeklyVolumeHistory, weekStart, plateauSignals, compareWorkouts, recoveryComparison, goalProgress, presetRange, chartDateRange, timeAxisDates, muscleMapWeeks, muscleWeekSummary, muscleWeekComparison} from './model.mjs'; import {renderMuscleMap} from './muscle-map.mjs'; import {recoveryPage as renderOperationHistory,recoveryReview} from './recovery.mjs';
 
 const $ = selector => document.querySelector(selector);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -8,6 +8,7 @@ const kg = value => present(value) ? `${number(value, 1)} <span class="unit">kg<
 const date = (value, full = false) => value ? new Date(value + 'T12:00:00Z').toLocaleDateString('en-GB', {day:'numeric', month:'short', ...(full ? {year:'numeric'} : {}), timeZone:'UTC'}) : '—';
 const duration = seconds => present(seconds) ? seconds >= 60 ? `${number(seconds / 60)} min` : `${number(seconds)} sec` : '—';
 const icons = {
+  running:'<circle cx="15" cy="4" r="2"/><path d="m12 8 4 4 4 1M7 10l5-2-2 6 5 3 1 5M10 14l-4 5H2"/>',
   menu:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
   liftPress:'<path d="M3 17h16m-3 0v4M6 17v4M8 14h7l-2-4V5m-3 0h6M10 3v4m6-4v4"/><circle cx="5" cy="12" r="2"/>',
   liftPull:'<path d="M4 3h16M7 3v5l5 3 5-3V3m-5 8v5m0 0-4 5m4-5 4 5"/><circle cx="12" cy="7" r="2"/>',
@@ -44,11 +45,21 @@ const icons = {
 };
 const icon = (name, extra = '') => `<svg class="icon ${extra}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || icons.activity}</svg>`;
 const state = {data:null, page:'overview', range:'30', from:'', to:'', source:'all', selected:'all', muscleGroup:'all', search:'', metric:'weight', exerciseVolumeMode:readExerciseVolumeMode(), limit:24, workoutSearch:'', recordSort:'count', recoveryLimit:14, refreshError:false, repTarget:5, plateauWindow:4, insightExercise:'all', recoveryMetric:'sleepHours', recoveryThreshold:7, volumeMode:'muscle', volumeMetric:'volume', volumeGroup:{muscle:'all',exercise:'all'}, volumeWeek:'', mapWeek:'', mapWeekLimit:4, mapMuscle:'all', mapSecondary:true, mapCompare:1, volumeCards:12, volumeLimit:100, planType:'upper1', compareLeft:'', compareRight:'', draft:null, foodDeleteId:'', nutritionDate:''};
-const pages = {operations:'Operation recovery',overview:'Overview', nutrition:'Nutrition', sync:'Garmin sync', next:'Next session', exercises:'Exercises', workouts:'Workouts', records:'Personal records', recovery:'Recovery', insights:'Insights', volume:'Weekly volume', compare:'Compare workouts', logging:'Log & edit', goals:'Goals',garmin:'Garmin workouts',preferences:'Preferences'};
+const pages = {running:'Running',operations:'Operation recovery',overview:'Overview', nutrition:'Nutrition', sync:'Garmin sync', next:'Next session', exercises:'Exercise library', workouts:'Workouts', records:'Personal records', recovery:'Recovery', insights:'Insights', volume:'Weekly volume', compare:'Compare workouts', logging:'Log & edit', goals:'Goals',garmin:'Garmin workouts',preferences:'Preferences'};
 let toastTimer;
 let loadSequence = 0;
 let operationSequence = 0;
 let operationReviewSequence = 0;
+
+function requestIdentity() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  // Private-network HTTP origins still support cryptographically random bytes.
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 15) | 64;
+  bytes[8] = (bytes[8] & 63) | 128;
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2,'0')).join('');
+  return [hex.slice(0,8),hex.slice(8,12),hex.slice(12,16),hex.slice(16,20),hex.slice(20)].join('-');
+}
 
 function today() {
   const parts = new Intl.DateTimeFormat('en-CA', {timeZone:state.data?.timezone || 'Europe/Kyiv', year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
@@ -65,7 +76,7 @@ function range() {
   return presetRange(state.range,today());
 }
 function readExerciseVolumeMode() {
-  try { return localStorage.getItem('reptrace.exerciseVolumeMode')==='adjusted'?'adjusted':'recorded'; } catch { return 'recorded'; }
+  try { return localStorage.getItem('reptrace.exerciseVolumeMode')==='recorded'?'recorded':'adjusted'; } catch { return 'adjusted'; }
 }
 function recordedExerciseVolume() { return state.page==='exercises'&&state.exerciseVolumeMode==='recorded'; }
 function exerciseVolumeLabel() { return recordedExerciseVolume()?'Recorded load × reps':'Adjusted volume'; }
@@ -97,8 +108,8 @@ function badge(source) {
   return `<span class="source-badge ${source === 'manual' ? 'manual' : 'garmin'}"><span></span>${source === 'manual' ? 'Manual log' : 'Garmin'}</span>`;
 }
 function nav() {
-  const primary=['overview','exercises','workouts','volume','recovery','nutrition','garmin','insights'];
-  const groups=[['Training',['next','records','compare','goals']],['Management',['logging','sync','operations','preferences']]];
+  const primary=['overview','exercises','workouts','running','volume','recovery','nutrition','garmin'];
+  const groups=[['Training',['insights','next','records','compare','goals']],['Management',['logging','sync','operations','preferences']]];
   const link=(key,extra='')=>`<a href="#${key}" aria-label="${pages[key]}" title="${pages[key]}" class="topnav-link ${extra} ${key===state.page?'active':''}" ${key===state.page?'aria-current="page"':''}>${icon(key)}<span>${pages[key]}</span></a>`;
   const moreActive=!primary.includes(state.page);
   $('#navigation').innerHTML=`<div class="topnav-primary">${primary.map(key=>link(key)).join('')}<details class="topnav-more" id="more-navigation"><summary class="topnav-more-toggle ${moreActive?'active':''}" aria-label="More pages">${icon('menu')}<span>More</span>${icon('chevron','topnav-chevron')}</summary><div class="topnav-menu"><div class="topnav-menu-groups">${groups.map(([title,keys])=>`<div class="topnav-group" role="group" aria-label="${title}"><div class="topnav-group-label">${title}</div>${keys.map(key=>link(key,'topnav-menu-link')).join('')}</div>`).join('')}</div><div class="topnav-menu-footer"><div class="connection"><span class="status-dot"></span>${state.refreshError?'Connection unavailable':state.data?'Connected to your history':'Your training history'}</div></div></div></details></div>`;
@@ -107,22 +118,28 @@ function nav() {
 }
 
 function filters() {
-  if (['nutrition','sync','goals'].includes(state.page)) return '';
-  return `<div class="header-actions"><label class="select-wrap" ${state.page==='recovery'?'hidden':''}><span class="sr-only">Record source</span><select id="source-filter"><option value="all" ${state.source === 'all' ? 'selected' : ''}>All records</option><option value="garmin" ${state.source === 'garmin' ? 'selected' : ''}>Garmin sets</option><option value="manual" ${state.source === 'manual' ? 'selected' : ''}>Manual sets</option></select></label><button class="button button-dark" data-action="export" aria-label="Download CSV" title="Export recorded loads and unadjusted kg × reps in the current date/source filters; workout search applies on Workouts">${icon('download')}<span>CSV</span></button><button class="button button-dark" data-action="export-excel" aria-label="Export sessions to Excel" title="Export sessions in the current date and source filters">${icon('download')}<span>Excel</span></button><button class="button button-dark" data-action="export-all" aria-label="Export all data, including every set" title="All history, all sources, every set including Unknown">${icon('download')}<span>All data</span></button></div>`;
+  if (['running','nutrition','sync','goals'].includes(state.page)) return '';
+  return `<div class="header-actions"><label class="select-wrap" ${state.page==='recovery'?'hidden':''}><span class="sr-only">Record source</span><select id="source-filter"><option value="all" ${state.source === 'all' ? 'selected' : ''}>All records</option><option value="garmin" ${state.source === 'garmin' ? 'selected' : ''}>${state.page==='overview'?'Garmin records':'Garmin sets'}</option><option value="manual" ${state.source === 'manual' ? 'selected' : ''}>${state.page==='overview'?'Manual records':'Manual sets'}</option></select></label><details class="export-options"><summary class="button">${icon('download')} Export</summary><div class="export-list"><button class="button button-dark" data-action="export" aria-label="${state.page==='recovery'?'Download recovery CSV':'Download sets CSV'}" title="Export recorded loads and unadjusted kg × reps in the current date/source filters; workout search applies on Workouts">${icon('download')}<span>CSV · ${state.page==='recovery'?'recovery days':'filtered sets'}</span></button><button class="button button-dark" data-action="export-excel" aria-label="Export sessions to Excel" title="Export sessions in the current date and source filters">${icon('download')}<span>Excel · filtered sessions</span></button><button class="button button-dark" data-action="export-all" aria-label="Export all data, including every set" title="All history, all sources, every set including Unknown">${icon('download')}<span>Excel · all data</span></button></div></details></div>`;
 }
 function header(title, description) {
   return `<section class="page-heading"><div><div class="eyebrow">YOUR TRAINING, OVER TIME</div><h1>${title}<span class="heading-dot">.</span></h1><p>${description}</p></div>${filters()}</section>${dateRangeBar()}`;
 }
 function stats(view) {
-  const weeks = weeklyWorkouts(view.workouts, today());
+  const totals = runningSummary(view.runs);
+  const sessions = [...view.workouts, ...view.runs];
+  const weeks = weeklyWorkouts(sessions, today());
   const currentWeek = weeks.at(-1).count;
   const items = [
-    {label:'Training sessions',value:number(view.workouts.length),sub:'Unique workouts in this range',icon:'workouts'},
+    {label:'Training sessions',value:number(sessions.length),sub:activityCounts(view.workouts.length, totals.count),icon:'workouts'},
     {label:'Recorded sets',value:number(view.sets.length),sub:`Across ${view.exercises.length} exercises`,icon:'exercises'},
     {label:'Recorded reps',value:number(sumKnown(view.sets.map(s => s.reps))),sub:`${view.sets.filter(s => !present(s.reps)).length} sets have no recorded reps`,icon:'activity'},
     {label:'Sessions this week',value:number(currentWeek),sub:'Monday to today · within your filters',icon:'overview'},
+    {label:'Runs',value:number(totals.count),sub:'In this range',icon:'running'},
+    {label:'Running distance',value:distanceLabel(totals.distance),sub:countLabel(totals.distanceCount,'run')+' with distance',icon:'running'},
+    {label:'Moving time',value:runningTime(totals.moving),sub:countLabel(totals.movingCount,'run')+' with moving time',icon:'clock'},
+    {label:'Moving pace',value:present(totals.pace)?paceLabel(totals.pace)+' /km':'—',sub:'Distance-weighted across '+countLabel(totals.paceCount,'run'),icon:'activity'},
   ];
-  return `<section class="stats-strip" aria-label="Training summary">${items.map(item => `<article class="stat"><div class="stat-top">${item.label}${icon(item.icon)}</div><strong>${item.value}</strong><small>${item.sub}</small></article>`).join('')}</section>`;
+  return `<section class="stats-strip overview-stats" aria-label="Training summary">${items.map(item => `<article class="stat"><div class="stat-top">${item.label}${icon(item.icon)}</div><strong>${item.value}</strong><small>${item.sub}</small></article>`).join('')}</section>`;
 }
 function sparkline(exercise) {
   const values = exercise.history.filter(h => present(h.weight)).map(h => h.weight);
@@ -228,7 +245,7 @@ function chart(exercise,metric=state.metric) {
     const result=`<rect class="chart-point workout-bar" x="${x(i)-barWidth/2}" y="${p.value===0?y(0)-3:y(p.value)}" width="${barWidth}" height="${Math.max(3,p.value/top*height)}" rx="3" fill="${segments?'transparent':color}" tabindex="0" role="button" data-session="${escape(p.id)}" data-point-previous="${previous??''}" data-point-value="${p.value}" data-point-unit="${unit}" data-point-label="${escape(totalLabel)}" aria-label="${escape(totalLabel)}; open workout"><title>${escape(totalLabel)}</title></rect>${segments}${points.length<=12?`<text x="${x(i)}" y="${y(p.value)-9}" text-anchor="middle" class="chart-label">${number(p.value,1)}</text>`:''}`;
     previous=p.value;return result;
   }).join('');
-  return `<div class="workout-chart-scroll"><div class="chart-wrap" id="progress-chart" style="min-width:${Math.max(0,points.length*12+90)}px"><div class="chart-tooltip" role="status"></div><svg class="progress-svg workout-bars-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${escape(exercise.name)} ${field} per workout in ${unit}. One bar per workout. Select a bar to open its workout." data-time-start="${new Date(points[0].date).getTime()}" data-time-end="${new Date(points.at(-1).date).getTime()}" data-workout-dates="${escape(JSON.stringify(points.map(p=>p.date)))}" data-plot-left="${pad.l}" data-plot-right="${W-pad.r}" data-plot-top="${pad.t}" data-plot-bottom="${H-pad.b}">${[0,.25,.5,.75,1].map(f=>`<line x1="${pad.l}" x2="${W-pad.r}" y1="${y(top*f)}" y2="${y(top*f)}" stroke="var(--line)" stroke-dasharray="3 5"/><text x="${pad.l-10}" y="${y(top*f)+4}" text-anchor="end" class="chart-label">${number(top*f,top<10?1:0)}</text>`).join('')}${bars}${indices.map(i=>`<text x="${x(i)}" y="${H-12}" text-anchor="${i===0?'start':i===points.length-1?'end':'middle'}" class="chart-label">${date(points[i].date,true)}</text>`).join('')}</svg></div></div><p class="workout-chart-caption">One bar per workout · chronological order · ? means the metric was not recorded</p>`;
+  return `<div class="workout-chart-scroll"><div class="chart-wrap" id="progress-chart" style="min-width:${Math.max(0,points.length*12+90)}px"><div class="chart-tooltip" role="status"></div><svg class="progress-svg workout-bars-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="group" aria-label="${escape(exercise.name)} ${field} per workout in ${unit}. One bar per workout. Select a bar to open its workout." data-time-start="${new Date(points[0].date).getTime()}" data-time-end="${new Date(points.at(-1).date).getTime()}" data-workout-dates="${escape(JSON.stringify(points.map(p=>p.date)))}" data-plot-left="${pad.l}" data-plot-right="${W-pad.r}" data-plot-top="${pad.t}" data-plot-bottom="${H-pad.b}">${[0,.25,.5,.75,1].map(f=>`<line x1="${pad.l}" x2="${W-pad.r}" y1="${y(top*f)}" y2="${y(top*f)}" stroke="var(--line)" stroke-dasharray="3 5"/><text x="${pad.l-10}" y="${y(top*f)+4}" text-anchor="end" class="chart-label">${number(top*f,top<10?1:0)}</text>`).join('')}${bars}${indices.map(i=>`<text x="${x(i)}" y="${H-12}" text-anchor="${i===0?'start':i===points.length-1?'end':'middle'}" class="chart-label">${date(points[i].date,true)}</text>`).join('')}</svg></div></div><p class="workout-chart-caption">One bar per workout · chronological order · ? means the metric was not recorded</p>`;
 }
 function allExercisesPanel(exercise) {
   const rows=exercise.rows,combined=exerciseSummaries(rows.map(r=>({...r,chartExercise:r.exercise,exercise:exercise.name})))[0];
@@ -249,10 +266,31 @@ function setsTable(exercise, compact = false) {
   const limit = compact ? 6 : state.limit;
   return `<section class="panel sets-panel"><div class="table-heading"><div><h2>${compact ? 'Latest sets' : 'Set history'}</h2><p>Every recorded set, with its original source.</p></div>${compact ? '<a href="#exercises" class="text-link" data-action="all-sets">All sets '+icon('arrow')+'</a>' : `<span class="count-chip">${exercise.count} sets</span>`}</div><div class="table-scroll"><table><thead><tr><th>Workout date</th>${exercise.all?'<th>Exercise</th>':''}<th>Set</th><th>Load</th><th>Reps</th><th>${exerciseVolumeLabel()} <span class="th-unit">kg·reps</span></th><th>Source</th><th><span class="sr-only">Open workout</span></th></tr></thead><tbody>${rows.slice(0,limit).map(s => `<tr><td><button class="table-date" data-session="${escape(s.sessionId)}">${date(s.date,true)}</button>${s.note ? `<span class="data-note" title="${escape(s.note)}">Needs context</span>` : ''}</td>${exercise.all?`<td><button class="record-exercise" data-exercise="${escape(s.exercise)}">${exerciseLabel(s.exercise)}</button></td>`:''}<td class="muted">${number(s.number)}</td><td class="weight-cell">${loadLabel(s.exercise,s.weight)}</td><td class="reps-cell">${number(s.reps)}</td><td class="volume-cell">${number(s.volume,1)}</td><td>${badge(s.source)}</td><td><button class="row-arrow" data-session="${escape(s.sessionId)}" aria-label="Open workout on ${escape(date(s.date,true))}">${icon('arrow')}</button></td></tr>`).join('')}</tbody></table></div>${!compact && rows.length > limit ? `<button class="load-more" data-action="more-sets">Show more sets <span>${Math.min(limit,rows.length)} of ${rows.length}</span></button>` : ''}</section>`;
 }
-function weeklyPanel(view) {
-  const weeks = weeklyWorkouts(view.workouts,today());
-  const max = Math.max(5,...weeks.map(w=>w.count));
-  return `<section class="panel weekly-panel"><div class="table-heading"><div><span class="eyebrow">CONSISTENCY</span><h2>A week at a time</h2></div><span class="subtle-label">LAST 12 WEEKS</span></div><div class="weekly-subtitle">One bar. One week. Your workout count on top.</div><div class="weekly-chart" data-motion-chart="true" data-motion-key="weekly-workouts" role="img" aria-label="Weekly strength workouts: ${weeks.map(w=>`${w.date}: ${w.count}`).join('; ')}">${weeks.map((w,i)=>`<div class="week-column ${i===weeks.length-1?'current':''}"><div class="week-bar-space"><div class="week-bar ${w.count?'':'zero'}" data-motion-bar="height" data-point-value="${w.count}" style="height:${w.count ? Math.max(8,w.count/max*100) : 2}%"><span>${w.count}</span></div></div><small>${date(w.date)}</small></div>`).join('')}</div><div class="weekly-footer"><span><i class="legend-square"></i> Week starting Monday</span><span>This week is still in progress</span></div></section>`;
+function activityLegend() {
+  return '<div class="activity-legend"><span><i class="strength"></i>Strength</span><span><i class="running"></i>Running</span></div>';
+}
+function weeklyPanel() {
+  // This card has its own fixed window; the page date filter must not erase history.
+  const end = today();
+  const {workouts, runs} = filterData(state.data,{to:end},state.source);
+  const strengthWeeks = weeklyWorkouts(workouts,end);
+  const runWeeks = weeklyWorkouts(runs,end);
+  const weeks = strengthWeeks.map(({date: monday,count: strength},i)=>{
+    const running = runWeeks[i].count;
+    return {monday, strength, total:strength+running, label:`Week of ${date(monday,true)}, ${activityCounts(strength,running)}`};
+  });
+  const max = Math.max(5,...weeks.map(w=>w.total));
+  const bars = weeks.map(({monday,strength,total,label},i)=>{
+    const height = total ? 100*total/max : 2;
+    const split = total ? 100*strength/total : 0;
+    return `<div class="week-column ${i===weeks.length-1?'current':''}" title="${escape(label)}">
+      <div class="week-bar-space"><div class="week-bar ${total?'':'zero'}" data-motion-bar="height" data-point-value="${total}" style="height:${height}%;--strength-share:${split}%"><span>${total}</span></div></div>
+      <small>${date(monday)}</small></div>`;
+  });
+  return `<section class="panel weekly-panel"><div class="table-heading"><div><span class="eyebrow">CONSISTENCY</span><h2>A week at a time</h2></div><span class="subtle-label">LAST 12 WEEKS</span></div>
+    <div class="weekly-subtitle">Sessions per week starting Monday, independent of the date filter.</div>
+    <div class="weekly-chart" data-motion-chart="true" data-motion-key="weekly-workouts" role="img" aria-label="${escape(weeks.map(w=>w.label).join('; '))}">${bars.join('')}</div>
+    <div class="weekly-footer">${activityLegend()}<span>This week is still in progress</span></div></section>`;
 }
 function workoutCard(workout, sets, compact = false) {
   const names = [...new Set(sets.map(s=>s.exercise))];
@@ -261,7 +299,7 @@ function workoutCard(workout, sets, compact = false) {
 }
 function recentPanel(view) {
   const workouts = [...view.workouts].sort((a,b)=>b.date.localeCompare(a.date)||b.time.localeCompare(a.time));
-  return `<section class="panel recent-panel"><div class="table-heading"><div><span class="eyebrow">KEEP SHOWING UP</span><h2>Recent workouts</h2></div><a href="#workouts" class="text-link">View all ${icon('arrow')}</a></div><div class="recent-list">${workouts.slice(0,3).map(w=>workoutCard(w,view.sets.filter(s=>s.sessionId===w.id),true)).join('') || '<div class="small-empty"><strong>No workouts in this range</strong><p>Choose a wider date range or select All records above.</p><a class="text-link" href="#logging">Log a workout →</a></div>'}</div></section>`;
+  return `<section class="panel recent-panel"><div class="table-heading"><div><span class="eyebrow">KEEP SHOWING UP</span><h2>Recent strength workouts</h2></div><a href="#workouts" class="text-link">View all ${icon('arrow')}</a></div><div class="recent-list">${workouts.slice(0,3).map(w=>workoutCard(w,view.sets.filter(s=>s.sessionId===w.id),true)).join('') || '<div class="small-empty"><strong>No strength workouts in this range</strong><p>Choose a wider date range or select All records above.</p><a class="text-link" href="#logging">Log a workout →</a></div>'}</div></section>`;
 }
 const recoveryMetrics = [
   {key:'sleepHours',label:'Sleep duration',unit:'',color:'var(--metric-sleepHours, #b6a0ff)',format:sleepDuration,description:'Total recorded sleep, excluding time awake.'},
@@ -371,7 +409,7 @@ function recoveryChart(rows, metric) {
   if(run.length)runs.push(run);
   const path=group=>group.map((p,i)=>`${i?'L':'M'}${x(p).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ');
   const indices=[...new Set([0,Math.floor((points.length-1)/2),points.length-1])];
-  return `<div class="chart-wrap daily-chart"><div class="chart-tooltip" role="status"></div><svg data-time-start="${first}" data-time-end="${last}" data-plot-left="${pad.l}" data-plot-right="${W-pad.r}" data-plot-top="${pad.t}" data-plot-bottom="${H-pad.b}" class="progress-svg" data-motion-chart="true" data-motion-key="recovery:${metric.key}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${escape(metric.label)} daily history"><defs><linearGradient id="recovery-fill-${metric.key}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${metric.color}" stop-opacity=".14"/><stop offset="100%" stop-color="${metric.color}" stop-opacity="0"/></linearGradient></defs>${[0,.25,.5,.75,1].map(f=>`<line x1="${pad.l}" x2="${W-pad.r}" y1="${y(bottom+(top-bottom)*f)}" y2="${y(bottom+(top-bottom)*f)}" stroke="hsl(var(--theme-hue) calc(18.58% * var(--theme-chroma)) 22.16%)" stroke-dasharray="3 5"/><text class="chart-label" x="${pad.l-11}" y="${y(bottom+(top-bottom)*f)+4}" text-anchor="end">${number(bottom+(top-bottom)*f,['sleepHours','bodyWeightKg'].includes(metric.key)?1:0)}</text>`).join('')}${runs.map(group=>`<path data-motion-area="true" d="${path(group)} L${x(group.at(-1))},${y(bottom)} L${x(group[0])},${y(bottom)} Z" fill="url(#recovery-fill-${metric.key})"/><path data-motion-line="true" d="${path(group)}" fill="none" stroke="${metric.color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`).join('')}${known.map((p,i)=>`<circle class="chart-point daily-point" cx="${x(p)}" cy="${y(p.value)}" r="3" fill="hsl(var(--theme-hue) calc(16.13% * var(--theme-chroma)) 12.16%)" stroke="${metric.color}" stroke-width="1.5" tabindex="${p===known.at(-1)?'0':'-1'}" role="img" data-point-previous="${i?known[i-1].value:''}" data-point-value="${p.value}" data-point-unit="${metric.key==='sleepHours'?'h':metric.unit==='/100'?'points':metric.unit}" data-point-label="${escape(date(p.date,true))} · ${number(p.value,['sleepHours','bodyWeightKg'].includes(metric.key)?2:0)} ${metric.key==='sleepHours'?'h':metric.unit}" aria-label="${escape(date(p.date,true))}, ${number(p.value,['sleepHours','bodyWeightKg'].includes(metric.key)?2:0)} ${metric.key==='sleepHours'?'hours':metric.unit}"/>`).join('')}${indices.map(i=>`<text class="chart-label" x="${x(points[i])}" y="${H-9}" text-anchor="${i===0?'start':i===points.length-1?'end':'middle'}">${date(points[i].date,true)}</text>`).join('')}</svg></div>`;
+  return `<div class="chart-wrap daily-chart"><div class="chart-tooltip" role="status"></div><svg data-time-start="${first}" data-time-end="${last}" data-plot-left="${pad.l}" data-plot-right="${W-pad.r}" data-plot-top="${pad.t}" data-plot-bottom="${H-pad.b}" class="progress-svg" data-motion-chart="true" data-motion-key="recovery:${metric.key}" viewBox="0 0 ${W} ${H}" role="group" aria-label="${escape(metric.label)} daily history"><defs><linearGradient id="recovery-fill-${metric.key}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${metric.color}" stop-opacity=".14"/><stop offset="100%" stop-color="${metric.color}" stop-opacity="0"/></linearGradient></defs>${[0,.25,.5,.75,1].map(f=>`<line x1="${pad.l}" x2="${W-pad.r}" y1="${y(bottom+(top-bottom)*f)}" y2="${y(bottom+(top-bottom)*f)}" stroke="hsl(var(--theme-hue) calc(18.58% * var(--theme-chroma)) 22.16%)" stroke-dasharray="3 5"/><text class="chart-label" x="${pad.l-11}" y="${y(bottom+(top-bottom)*f)+4}" text-anchor="end">${number(bottom+(top-bottom)*f,['sleepHours','bodyWeightKg'].includes(metric.key)?1:0)}</text>`).join('')}${runs.map(group=>`<path data-motion-area="true" d="${path(group)} L${x(group.at(-1))},${y(bottom)} L${x(group[0])},${y(bottom)} Z" fill="url(#recovery-fill-${metric.key})"/><path data-motion-line="true" d="${path(group)}" fill="none" stroke="${metric.color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`).join('')}${known.map((p,i)=>`<circle class="chart-point daily-point" cx="${x(p)}" cy="${y(p.value)}" r="3" fill="hsl(var(--theme-hue) calc(16.13% * var(--theme-chroma)) 12.16%)" stroke="${metric.color}" stroke-width="1.5" tabindex="${p===known.at(-1)?'0':'-1'}" role="img" data-point-previous="${i?known[i-1].value:''}" data-point-value="${p.value}" data-point-unit="${metric.key==='sleepHours'?'h':metric.unit==='/100'?'points':metric.unit}" data-point-label="${escape(date(p.date,true))} · ${number(p.value,['sleepHours','bodyWeightKg'].includes(metric.key)?2:0)} ${metric.key==='sleepHours'?'h':metric.unit}" aria-label="${escape(date(p.date,true))}, ${number(p.value,['sleepHours','bodyWeightKg'].includes(metric.key)?2:0)} ${metric.key==='sleepHours'?'hours':metric.unit}"/>`).join('')}${indices.map(i=>`<text class="chart-label" x="${x(points[i])}" y="${H-9}" text-anchor="${i===0?'start':i===points.length-1?'end':'middle'}">${date(points[i].date,true)}</text>`).join('')}</svg></div>`;
 }
 function sleepStages(rows) {
   const row=[...rows].reverse().find(r=>['deepSeconds','lightSeconds','remSeconds'].some(key=>present(r[key])));
@@ -406,45 +444,103 @@ function shiftCalendar(month,offset){
   const [year,m]=month.split('-').map(Number),d=new Date(Date.UTC(year,m-1+offset,1));
   return d.toISOString().slice(0,7);
 }
+function countLabel(count, noun) {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+function activityCounts(strength, runs) {
+  return `${countLabel(strength,'strength session')} · ${countLabel(runs,'run')}`;
+}
+function distanceLabel(km) {
+  return present(km) ? number(km,2)+' km' : '—';
+}
+function calendarDay(day, strength, runs, selected, currentDay) {
+  const distance = sumKnown(runs.map(run=>run.distanceKm));
+  const counts = activityCounts(strength.length,runs.length);
+  const caption = present(distance) ? distanceLabel(distance) : countLabel(strength.length+runs.length,'session');
+  const label = [date(day,true),counts,present(distance) ? distanceLabel(distance)+' running' : ''].filter(Boolean).join(', ');
+  return `<button class="calendar-day ${strength.length?'has-strength':''} ${runs.length?'has-run':''} ${day===currentDay?'is-today':''}" data-calendar-day="${day}" aria-pressed="${day===selected}" aria-label="${escape(label)}">
+    <span>${Number(day.slice(-2))}</span><span class="calendar-dots" aria-hidden="true">${strength.length?'<i class="strength"></i>':''}${runs.length?'<i class="running"></i>':''}</span>
+    <small>${strength.length||runs.length?caption:''}</small></button>`;
+}
+function calendarRun(run) {
+  const pace = runPace(run);
+  const metrics = [
+    present(run.distanceKm) && distanceLabel(run.distanceKm),
+    present(run.movingSeconds) && runningTime(run.movingSeconds)+' moving',
+    present(pace) && paceLabel(pace)+' /km',
+    present(run.averageHR) && number(run.averageHR)+' bpm',
+  ].filter(Boolean);
+  return `<button class="calendar-session calendar-run" data-calendar-run="${escape(run.id)}"><span>${icon('running')}<strong>${escape(run.name)}</strong></span>
+    ${metrics.length?`<small>${metrics.join(' · ')}</small>`:''}<small>Garmin · View run →</small></button>`;
+}
 function workoutCalendar(view){
-  const month=state.calendarMonth||((range().to||today()).slice(0,7));
+  const currentDay=today(), month=state.calendarMonth||(range().to||currentDay).slice(0,7);
   const [year,m]=month.split('-').map(Number),first=new Date(Date.UTC(year,m-1,1));
   const days=new Date(Date.UTC(year,m,0)).getUTCDate(),offset=(first.getUTCDay()+6)%7;
-  const monthWorkouts=view.workouts.filter(w=>w.date.startsWith(month));
-  const byDay=new Map();for(const workout of monthWorkouts){if(!byDay.has(workout.date))byDay.set(workout.date,[]);byDay.get(workout.date).push(workout);}
+  const strength=view.workouts.filter(w=>w.date.startsWith(month)), runs=view.runs.filter(r=>r.date.startsWith(month));
+  const strengthDays=Map.groupBy(strength,w=>w.date), runDays=Map.groupBy(runs,r=>r.date);
+  const trainingDays=new Set([...strengthDays.keys(),...runDays.keys()]).size;
   const selected=state.calendarDay?.startsWith(month)?state.calendarDay:null;
-  const selectedWorkouts=selected?(byDay.get(selected)||[]):[];
   const title=first.toLocaleDateString('en-GB',{month:'long',year:'numeric',timeZone:'UTC'});
-  return `<section class="panel workout-calendar"><div class="table-heading"><div><span class="eyebrow">YOUR TRAINING RHYTHM</span><h2>Workout calendar</h2><p>${monthWorkouts.length} workouts · ${byDay.size} training days in this month · respects your filters</p></div><div class="calendar-controls"><button class="button" data-calendar-shift="-1" aria-label="Previous month">←</button><strong aria-live="polite">${title}</strong><button class="button" data-calendar-shift="1" aria-label="Next month">→</button><button class="button" data-calendar-today>This month</button></div></div><div class="calendar-body"><div><div class="calendar-weekdays" aria-hidden="true">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d=>`<span>${d}</span>`).join('')}</div><div class="calendar-days" role="group" aria-label="${title}">${'<span class="calendar-blank" aria-hidden="true"></span>'.repeat(offset)}${Array.from({length:days},(_,i)=>{const day=`${month}-${String(i+1).padStart(2,'0')}`,rows=byDay.get(day)||[];return `<button class="calendar-day ${rows.length?'has-workout':''} ${day===today()?'is-today':''}" data-calendar-day="${day}" aria-pressed="${day===selected}" aria-label="${escape(date(day,true))}: ${rows.length} recorded workouts"><span>${i+1}</span><div class="calendar-dots" aria-hidden="true">${rows.slice(0,3).map(w=>`<i class="${w.source==='manual'?'manual':'garmin'}"></i>`).join('')}${rows.length>3?'<small>+</small>':''}</div><small>${rows.length?rows.length+' session'+(rows.length===1?'':'s'):''}</small></button>`;}).join('')}</div><div class="calendar-legend"><span><i class="garmin"></i>Garmin</span><span><i class="manual"></i>Manual</span><span>Empty days: no recorded workouts in these filters</span></div></div><aside class="calendar-detail" aria-live="polite"><h3>${selected?date(selected,true):'Choose a training day'}</h3>${selectedWorkouts.length?selectedWorkouts.map(w=>`<button class="calendar-session" data-session="${escape(w.id)}"><span>${icon('workouts')}<strong>${escape(w.name)}</strong></span><small>${w.source==='manual'?'Manual log':'Garmin'} · View workout →</small></button>`).join(''):`<p>${selected?'No workouts recorded for this day with the current filters.':'Select a date to see its sessions, then open a workout to explore its exercises and sets.'}</p>`}</aside></div></section>`;
+  const cells=Array.from({length:days},(_,i)=>{
+    const day=`${month}-${String(i+1).padStart(2,'0')}`;
+    return calendarDay(day,strengthDays.get(day)||[],runDays.get(day)||[],selected,currentDay);
+  });
+  const details=(strengthDays.get(selected)||[]).map(w=>`<button class="calendar-session" data-session="${escape(w.id)}"><span>${icon('workouts')}<strong>${escape(w.name)}</strong></span><small>${w.source==='manual'?'Manual log':'Garmin'} · View strength workout →</small></button>`).concat((runDays.get(selected)||[]).map(calendarRun));
+  return `<section class="panel workout-calendar"><div class="table-heading"><div><span class="eyebrow">YOUR TRAINING RHYTHM</span><h2>Workout calendar</h2><p>${activityCounts(strength.length,runs.length)} · ${countLabel(trainingDays,'training day')} in this month</p></div>
+    <div class="calendar-controls"><button class="button" data-calendar-shift="-1" aria-label="Previous month">←</button><strong aria-live="polite">${title}</strong><button class="button" data-calendar-shift="1" aria-label="Next month">→</button><button class="button" data-calendar-today>This month</button></div></div>
+    <div class="calendar-body"><div><div class="calendar-weekdays" aria-hidden="true">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d=>`<span>${d}</span>`).join('')}</div>
+    <div class="calendar-days" data-motion-month="${month}" role="group" aria-label="${title}">${'<span class="calendar-blank" aria-hidden="true"></span>'.repeat(offset)}${cells.join('')}</div>
+    ${activityLegend()}</div>
+    <aside class="calendar-detail" aria-live="polite"><h3>${selected?date(selected,true):'Choose a training day'}</h3>${details.join('')||`<p>${selected?'No sessions recorded for this day with the current filters.':'Select a date to see its sessions.'}</p>`}</aside></div></section>`;
 }
 function overview(view) {
   const todayLocal=today();
   const food=(state.data.foodLog||[]).filter(e=>localDay(e.time)===todayLocal);
   const nutrition=food.reduce((a,e)=>{a.calories+=e.calories;a.protein+=e.protein_g;a.carbs+=e.carbs_g;a.fat+=e.fat_g;return a;},{calories:0,protein:0,carbs:0,fat:0});
-  const sections={summary:()=>stats(view),calendar:()=>workoutCalendar(view),nutrition:()=>`<section class="panel overview-nutrition"><div><span class="eyebrow">FOOD TODAY · ESTIMATED</span><h2>${food.length?number(nutrition.calories)+' kcal':'No food logged yet'}</h2><p>${food.length?`Protein ${number(nutrition.protein,1)} g · Carbs ${number(nutrition.carbs,1)} g · Fat ${number(nutrition.fat,1)} g`:'Send a food photo or a short description to your Telegram bot.'}</p></div><a class="button" href="#nutrition">View nutrition ${icon('arrow')}</a></section>`,recovery:()=>recoverySnapshot(),consistency:()=>weeklyPanel(view),recent:()=>recentPanel(view)};
+  const sections={summary:()=>stats(view),calendar:()=>workoutCalendar(view),nutrition:()=>`<section class="panel overview-nutrition"><div><span class="eyebrow">FOOD TODAY · ESTIMATED</span><h2>${food.length?number(nutrition.calories)+' kcal':'No food logged yet'}</h2><p>${food.length?`Protein ${number(nutrition.protein,1)} g · Carbs ${number(nutrition.carbs,1)} g · Fat ${number(nutrition.fat,1)} g`:'Send a food photo or a short description to your Telegram bot.'}</p></div><a class="button" href="#nutrition">View nutrition ${icon('arrow')}</a></section>`,recovery:()=>recoverySnapshot(),consistency:()=>weeklyPanel(),recent:()=>recentPanel(view)};
   const layout=overviewLayout();
-  return header('Training overview','Your lifts, your consistency, and the progress behind every session.')+layout.order.filter(key=>!layout.hidden.includes(key)).map(key=>`<div class="overview-section" data-overview-section="${key}">${sections[key]()}</div>`).join('')+(layout.hidden.length===layout.order.length?'<div class="panel small-empty"><strong>Your overview is clear</strong><p>Open Preferences to bring back a section.</p><a class="button" href="#preferences">Customize overview →</a></div>':'');
+  return header('Training overview','Your strength training and running in one place.')+layout.order.filter(key=>!layout.hidden.includes(key)).map(key=>`<div class="overview-section" data-overview-section="${key}">${sections[key]()}</div>`).join('')+(layout.hidden.length===layout.order.length?'<div class="panel small-empty"><strong>Your overview is clear</strong><p>Open Preferences to bring back a section.</p><a class="button" href="#preferences">Customize overview →</a></div>':'');
 }
 function exercisesPage(view) {
   if(!view.sets.length)return header('Your exercise library','A complete history for every lift, grouped by muscle.')+'<section class="panel empty-panel"><h2>No exercise sets in these filters</h2><p>Broaden the date or source filters, log a workout, or identify Unknown exercises in Log &amp; edit.</p><a class="button button-dark" href="#logging">Open Log &amp; edit</a></section>';
   return header('Your exercise library','A complete history for every lift, grouped by muscle. Most recorded exercises come first within each group.') + `<div class="training-grid exercises-page">${library(view)}<div class="exercise-detail">${progressPanel(view.selected)}${setsTable(view.selected)}</div></div>`;
 }
+function matchingWorkouts(view) {
+  const search=state.workoutSearch.trim().toLowerCase();
+  return view.workouts.filter(w=>w.name.toLowerCase().includes(search))
+    .sort((a,b)=>b.date.localeCompare(a.date)||b.time.localeCompare(a.time));
+}
+function workoutResults(workouts,sets) {
+  if(!workouts.length)return '<div class="empty-panel">No matching workouts. Change your search or date range.</div>';
+  const bySession=Map.groupBy(sets,s=>s.sessionId);
+  const limit=state.workoutLimit??24;
+  return workouts.slice(0,limit).map(w=>workoutCard(w,bySession.get(w.id)||[])).join('')+
+    (workouts.length>limit?`<button class="button more-workouts" data-action="more-workouts">Show more workouts (${workouts.length-limit} remaining)</button>`:'');
+}
 function workoutsPage(view) {
-  const workouts = [...view.workouts].sort((a,b)=>b.date.localeCompare(a.date)||b.time.localeCompare(a.time)).filter(w=>w.name.toLowerCase().includes(state.workoutSearch.toLowerCase()));
-  return header('Workout history','Open a session to see every exercise, set, rep, and recorded rest.') + `<div class="workout-toolbar"><span id="workout-count"><strong>${workouts.length}</strong> ${state.workoutSearch?`matching workouts · ${view.workouts.length} in date range`:'workouts in your selected range'}</span><label class="search-box">${icon('search')}<span class="sr-only">Search workout names</span><input id="workout-search" type="search" placeholder="Find a workout…" value="${escape(state.workoutSearch)}"></label></div><div class="workouts-grid" id="workout-list">${workouts.map(w=>workoutCard(w,view.sets.filter(s=>s.sessionId===w.id))).join('') || '<div class="empty-panel">No matching workouts.</div>'}</div>`;
+  const workouts=matchingWorkouts(view);
+  return header('Workout history','Open a session to see every exercise, set, rep, and recorded rest.') + `<div class="workout-toolbar"><span id="workout-count"><strong>${workouts.length}</strong> ${state.workoutSearch?`matching workouts · ${view.workouts.length} in date range`:'workouts in your selected range'}</span><div class="workout-actions"><a class="button" href="#next">Next session</a><button class="button button-dark" data-action="new-workout">+ Log workout</button></div><label class="search-box">${icon('search')}<span class="sr-only">Search workout names</span><input id="workout-search" type="search" placeholder="Find a workout…" value="${escape(state.workoutSearch)}"></label></div><div class="workouts-grid" id="workout-list">${workoutResults(workouts,view.sets)}</div>`;
 }
 function recordsPage(view) {
   const rows = [...view.exercises].sort((a,b)=>state.recordSort === 'name' ? a.name.localeCompare(b.name) : state.recordSort === 'change' ? (b.change??-Infinity)-(a.change??-Infinity) : b.count-a.count);
   return header('Personal records','Your best recorded sets, with the context to read them correctly.') + `<div class="record-banner"><span class="record-icon">${icon('records')}</span><div><h2>Progress has more than one number.</h2><p>Load, reps, and estimated max are separate records. They may come from different sets.</p></div><span>${view.exercises.length}<small>exercises tracked</small></span></div><section class="panel"><div class="table-heading"><div><h2>Records by exercise</h2><p>All values follow your date and source filters.</p></div><label class="select-wrap"><span class="sr-only">Sort records</span><select id="record-sort"><option value="count" ${state.recordSort==='count'?'selected':''}>Most recorded</option><option value="name" ${state.recordSort==='name'?'selected':''}>Exercise name</option><option value="change" ${state.recordSort==='change'?'selected':''}>Load change</option></select></label></div><div class="table-scroll"><table class="records-table"><thead><tr><th>Exercise</th><th>Sets</th><th>Best load / least assistance</th><th>Rep record</th><th>Best est. 1RM</th><th>First → latest load</th><th>History</th></tr></thead><tbody>${rows.map(e=>`<tr><td><button class="record-exercise" data-view-exercise="${escape(e.name)}">${exerciseLabel(e.name)}</button><small>${e.sessions} workouts</small></td><td>${e.count}</td><td class="weight-cell">${kg(e.bestWeight)}${e.assisted?'<small>assistance</small>':''}</td><td>${number(e.bestReps)}</td><td>${kg(e.bestMax)}</td><td class="${(e.assisted?e.change<0:e.change>0)?'positive':''}">${present(e.change)?(e.change>0?'+':'')+number(e.change,1)+' kg':'—'}<small>${present(e.firstWeight)?number(e.firstWeight,1)+' → '+number(e.latestWeight,1)+' kg':'No recorded load'}</small></td><td><button class="record-spark" data-view-exercise="${escape(e.name)}" aria-label="Explore ${escape(e.name)}">${sparkline(e)}${icon('arrow')}</button></td></tr>`).join('')}</tbody></table></div><div class="records-note">Estimated 1RM uses eligible weighted sets of 1–10 reps. For assisted exercises the best is the least recorded assistance, and lower kg means less help. Other loads are not corrected for bodyweight or equipment changes.</div></section>`;
+}
+function runningPage() {
+  const selected=range();
+  const dateControls=`<div class="run-period-choices" role="group" aria-label="Running date range">${[['7','7 days'],['30','30 days'],['90','90 days'],['all','All history'],['custom','Custom']].map(([key,label])=>`<button data-range="${key}" aria-pressed="${state.range===key}">${label}</button>`).join('')}</div>`;
+  const custom=state.range==='custom'?`<div class="run-custom-dates"><label>From <input type="date" id="from-date" value="${escape(selected.from||'')}" max="${today()}"></label><label>To <input type="date" id="to-date" value="${escape(selected.to||today())}" max="${today()}"></label><button class="button" data-action="apply-range">Apply dates</button><span id="range-error" role="status"></span></div>`:'';
+  return `<header class="run-page-header"><div><span class="eyebrow">YOUR RUNNING JOURNAL</span><h1>Running<span class="heading-dot">.</span></h1><p>A closer look at every effort.</p></div>${dateControls}</header>${custom}`+renderRunningDashboard(state.data.runs||[],selected);
 }
 function nutritionDay() { return state.nutritionDate || today(); }
 function dateRangeBar() {
   if(state.page==='goals')return '';
   if(state.page==='nutrition')return `<section class="date-range-bar nutrition-date-bar" aria-label="Choose nutrition day"><div><strong>${nutritionDay()===today()?'Today':date(nutritionDay(),true)}</strong><p>Logged calories and macros for this day</p></div><div class="range-dates"><label><span>Day</span><input type="date" id="nutrition-date" value="${escape(nutritionDay())}" max="${today()}"></label><button class="button" data-action="nutrition-today">Today</button></div></section>`;
 
-  const dates=(state.page==='recovery'?(state.data?.recovery||[]):state.page==='nutrition'?(state.data?.foodLog||[]).map(e=>({date:localDay(e.time)})):(state.data?.workouts||[])).map(r=>r.date).sort();
+  const dates=(state.page==='overview'?[...(state.data?.workouts||[]),...(state.data?.runs||[])]:state.page==='running'?(state.data?.runs||[]):state.page==='recovery'?(state.data?.recovery||[]):state.page==='nutrition'?(state.data?.foodLog||[]).map(e=>({date:localDay(e.time)})):(state.data?.workouts||[])).map(r=>r.date).sort();
   const selected=range(),from=selected.from||dates[0]||today(),to=selected.to||today();
-  return `<section class="date-range-bar" aria-label="Choose a date range"><div class="range-main"><div class="range-presets" role="group" aria-label="Quick date ranges">${[['all','All history'],['7','1 week'],['14','2 weeks'],['30','30 days'],['90','90 days'],['6m','6 months'],['1y','1 year']].map(([key,label])=>`<button data-range="${key}" class="${state.range===key?'active':''}" aria-pressed="${state.range===key}">${label}</button>`).join('')}</div><div class="range-dates"><label><span>From</span><input type="date" id="from-date" value="${escape(from)}" max="${today()}"></label><span class="range-arrow">→</span><label><span>To</span><input type="date" id="to-date" value="${escape(to)}" max="${today()}"></label><button class="button range-apply ${state.range==='custom'?'chosen':''}" data-action="apply-range">Apply dates</button></div></div><div class="range-caption"><span>${date(from,true)} — ${date(to,true)} <span class="muted">· ${state.range==='custom'?'Custom dates':'Preset range'}</span></span><span id="range-error" role="status"></span>${state.zoomHistory?.length?'<button class="button" data-action="undo-zoom">Undo zoom</button><button class="button" data-action="reset-zoom">Reset zoom</button>':''}</div></section>`;
+  const expanded=state.dateControlsOpen??!(window.matchMedia?.('(max-width: 700px)').matches);
+  return `<details class="date-disclosure" ${expanded?'open':''}><summary><strong>Date range</strong><span>${date(from,true)} – ${date(to,true)}</span></summary><section class="date-range-bar" aria-label="Choose a date range"><div class="range-main"><div class="range-presets" role="group" aria-label="Quick date ranges">${[['all','All history'],['7','1 week'],['14','2 weeks'],['30','30 days'],['90','90 days'],['6m','6 months'],['1y','1 year']].map(([key,label])=>`<button data-range="${key}" class="${state.range===key?'active':''}" aria-pressed="${state.range===key}">${label}</button>`).join('')}</div><div class="range-dates"><label><span>From</span><input type="date" id="from-date" value="${escape(from)}" max="${today()}"></label><span class="range-arrow">→</span><label><span>To</span><input type="date" id="to-date" value="${escape(to)}" max="${today()}"></label><button class="button range-apply ${state.range==='custom'?'chosen':''}" data-action="apply-range">Apply dates</button></div></div><div class="range-caption"><span>${date(from,true)} — ${date(to,true)} <span class="muted">· ${state.range==='custom'?'Custom dates':'Preset range'}</span></span><span id="range-error" role="status"></span>${state.zoomHistory?.length?'<button class="button" data-action="undo-zoom">Undo zoom</button><button class="button" data-action="reset-zoom">Reset zoom</button>':''}</div></section></details>`;
 }
 function repControl() {
   return `<label class="inline-input">Compare sets at <input id="rep-target" type="number" min="1" max="500" value="${state.repTarget}"> reps <span class="muted">exactly</span></label>`;
@@ -523,7 +619,7 @@ function volumeHistoryChart(series,field,interactive=true) {
     }).join('');
   };
   const indices=[...new Set([0,Math.round((weeks.length-1)/4),Math.round((weeks.length-1)/2),Math.round((weeks.length-1)*.75),weeks.length-1])];
-  return `<div class="volume-chart-scroll"><svg data-time-start="${new Date(weeks[0].week).getTime()}" data-time-end="${new Date(weeks.at(-1).week).getTime()+7*86400000-1}" data-plot-left="${pad.l}" data-plot-right="${W-pad.r}" data-plot-top="${pad.t}" data-plot-bottom="${H-pad.b}" class="volume-history-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${escape(series.group)} weekly ${unit} history">${[0,.25,.5,.75,1].map(f=>`<line x1="${pad.l}" x2="${W-pad.r}" y1="${y(top*f)}" y2="${y(top*f)}" stroke="var(--line)" stroke-dasharray="3 5"/><text x="${pad.l-12}" y="${y(top*f)+5}" text-anchor="end" class="chart-label">${number(top*f,top<10?1:0)}</text>`).join('')}${weeks.map((w,i)=>`<g class="volume-week-bar ${w.week===state.volumeWeek?'selected':''}" ${interactive?`data-volume-week="${w.week}" role="button" tabindex="0" aria-pressed="${w.week===state.volumeWeek}"`:''} aria-label="${escape(label(w))}"><title>${escape(label(w)+(w.exercises?' · '+w.exercises.map(row=>row.group+': '+number(row[field],1)+' '+unit).join('; '):''))}</title><rect x="${x(i)-step/2}" y="${pad.t}" width="${step}" height="${height+8}" fill="transparent"/><rect class="volume-value-bar" data-point-value="${present(w[field])?w[field]:''}" x="${x(i)-bar/2}" y="${present(w[field])?y(w[field]):y(0)-12}" width="${bar}" height="${present(w[field])?Math.max(2,w[field]/top*height):12}" rx="2" fill="${w.exercises?.some(row=>row[field]>0)?'transparent':present(w[field])?color:'var(--muted)'}" opacity="${w.noRecords?.22:w.partial?.55:1}"/>${segments(w,i)}${!present(w[field])?`<text x="${x(i)}" y="${y(0)-18}" text-anchor="middle" class="chart-label">?</text>`:''}${w.partial?`<circle cx="${x(i)}" cy="${y(0)+9}" r="2" fill="var(--muted)"/>`:''}</g>`).join('')}${indices.map(i=>`<text x="${x(i)}" y="${H-10}" text-anchor="${i===0?'start':i===weeks.length-1?'end':'middle'}" class="chart-label">${date(weeks[i].week,true)}</text>`).join('')}</svg></div>`;
+  return `<div class="volume-chart-scroll"><svg data-time-start="${new Date(weeks[0].week).getTime()}" data-time-end="${new Date(weeks.at(-1).week).getTime()+7*86400000-1}" data-plot-left="${pad.l}" data-plot-right="${W-pad.r}" data-plot-top="${pad.t}" data-plot-bottom="${H-pad.b}" class="volume-history-svg" viewBox="0 0 ${W} ${H}" role="group" aria-label="${escape(series.group)} weekly ${unit} history">${[0,.25,.5,.75,1].map(f=>`<line x1="${pad.l}" x2="${W-pad.r}" y1="${y(top*f)}" y2="${y(top*f)}" stroke="var(--line)" stroke-dasharray="3 5"/><text x="${pad.l-12}" y="${y(top*f)+5}" text-anchor="end" class="chart-label">${number(top*f,top<10?1:0)}</text>`).join('')}${weeks.map((w,i)=>`<g class="volume-week-bar ${w.week===state.volumeWeek?'selected':''}" ${interactive?`data-volume-week="${w.week}" role="button" tabindex="0" aria-pressed="${w.week===state.volumeWeek}"`:''} aria-label="${escape(label(w))}"><title>${escape(label(w)+(w.exercises?' · '+w.exercises.map(row=>row.group+': '+number(row[field],1)+' '+unit).join('; '):''))}</title><rect x="${x(i)-step/2}" y="${pad.t}" width="${step}" height="${height+8}" fill="transparent"/><rect class="volume-value-bar" data-point-value="${present(w[field])?w[field]:''}" x="${x(i)-bar/2}" y="${present(w[field])?y(w[field]):y(0)-12}" width="${bar}" height="${present(w[field])?Math.max(2,w[field]/top*height):12}" rx="2" fill="${w.exercises?.some(row=>row[field]>0)?'transparent':present(w[field])?color:'var(--muted)'}" opacity="${w.noRecords?.22:w.partial?.55:1}"/>${segments(w,i)}${!present(w[field])?`<text x="${x(i)}" y="${y(0)-18}" text-anchor="middle" class="chart-label">?</text>`:''}${w.partial?`<circle cx="${x(i)}" cy="${y(0)+9}" r="2" fill="var(--muted)"/>`:''}</g>`).join('')}${indices.map(i=>`<text x="${x(i)}" y="${H-10}" text-anchor="${i===0?'start':i===weeks.length-1?'end':'middle'}" class="chart-label">${date(weeks[i].week,true)}</text>`).join('')}</svg></div>`;
 }
 function volumeMiniChart(series,field) {
   const W=300,H=70,values=series.history,max=Math.max(1,...values.filter(w=>present(w[field])).map(w=>w[field]));
@@ -584,25 +680,72 @@ function goalsPage() {
   return header('Training goals','Targets checked against real recorded sets, across your full training history.')+`<div class="workout-toolbar"><span>${goals.length} active targets · independent of date filters</span><button class="button button-dark" data-action="new-goal">+ Add a goal</button></div><div class="goals-grid">${goals.map(g=>{const p=goalProgress(g,state.data.sets,state.data.volumeSettings||{});return `<article class="panel goal-card"><div class="goal-card-top"><span class="signal ${p.achieved?'progressing':'insufficient'}">${p.achieved?'Recorded target achieved':'In progress'}</span><button class="text-link" data-edit-goal="${g.id}">Edit</button></div><h2>${exerciseLabel(g.exercise)}</h2><strong class="goal-target">${g.mode==='reps'?`${g.reps} reps`:`${p.assisted?'≤ ':''}${number(g.weight,1)} kg${p.assisted?' assistance':''} × ${g.reps} reps`}</strong><div class="goal-track" data-motion-chart="true" data-motion-key="goal:${g.id}"><span data-motion-bar="x" data-point-value="${p.percent??0}" style="width:${p.percent??0}%"></span></div><p>${p.achieved?`Reached in recorded history on ${date(p.date,true)}`:present(p.best)?`Best qualifying record: ${number(p.best,1)} ${g.mode==='reps'?'reps':(p.assisted?'kg assistance at ':'kg at ')+g.reps+'+ reps'}`:'No qualifying recorded set yet.'}</p><p class="muted">${g.deadline?'Target date: '+date(g.deadline,true):'No target date'}</p><div class="goal-actions">${p.sessionId?`<button class="text-link" data-session="${escape(p.sessionId)}">View achieved set’s workout ${icon('arrow')}</button>`:''}<button class="text-link muted" data-archive-goal="${g.id}">Archive</button></div></article>`;}).join('')||'<section class="panel empty-panel"><h2>Choose your next target</h2><p>Add a load-and-reps goal or a reps-only goal. Progress comes from actual sets; nothing is pre-filled as an achievement.</p><button class="button button-dark" data-action="new-goal">Add your first goal</button></section>'}</div>${archived.length?`<details class="panel muscle-editor"><summary>Archived goals (${archived.length})</summary>${archived.map(g=>`<div class="archive-goal"><span>${exerciseLabel(g.exercise)} · ${g.reps} reps</span><button class="text-link" data-restore-goal="${g.id}">Restore</button></div>`).join('')}</details>`:''}`;
 }
 function loggingPage(view) {
+  const setsBySession=Map.groupBy([...state.data.sets,...(state.data.hiddenSets||[])],s=>s.sessionId);
   const drafts=Object.entries(storedDrafts()).filter(([,draft])=>draft&&Array.isArray(draft.sets));
   const resume=drafts.length?`<section class="panel draft-resume"><h2>Unsaved workouts</h2><p>Kept only in this browser. Resume a draft to finish or discard it.</p>${drafts.map(([key,draft])=>`<button class="button" data-resume-draft="${escape(key)}">Resume ${escape(draft.name||'workout')} · ${escape(draft.date||'')}</button>`).join('')}</section>`:'';
   const workouts=[...view.workouts].sort((a,b)=>b.date.localeCompare(a.date)||b.time.localeCompare(a.time));
-  return header('Log & edit training','Add a manual session, correct exercise names, or fill in missing loads and reps.')+resume+`<div class="workout-toolbar"><span>Saved changes update the shared training database.</span><button class="button button-dark" data-action="new-workout">+ Log workout</button></div><section class="panel feature-panel"><div class="table-heading"><div><h2>Your workouts</h2><p>Garmin timing and health measurements are retained when you edit its sets.</p></div></div><div class="table-scroll"><table><thead><tr><th>Date</th><th>Workout</th><th>Recorded sets</th><th>Missing load / reps</th><th>Edit</th></tr></thead><tbody>${workouts.length?'':'<tr><td colspan="5">No workouts in these filters. Log a workout or broaden the date range.</td></tr>'}${workouts.map(w=>{const rows=[...state.data.sets,...(state.data.hiddenSets||[])].filter(s=>s.sessionId===w.id),unknown=rows.filter(s=>s.exercise.trim().toLowerCase()==='unknown').length;return `<tr><td>${date(w.date,true)}</td><td><button class="record-exercise" data-session="${escape(w.id)}">${escape(w.name)}</button></td><td>${rows.length}${unknown?`<small>${unknown} unidentified</small>`:''}</td><td>${rows.filter(s=>!present(s.weight)).length} / ${rows.filter(s=>!present(s.reps)).length}</td><td><button class="button" data-edit-workout="${escape(w.id)}">Edit sets</button></td></tr>`;}).join('')}</tbody></table></div></section><section class="panel feature-panel"><div class="table-heading"><div><h2>Recent changes</h2><p>Originals are backed up. Undo is available when that workout has no newer changes.</p></div></div><div class="edit-history">${(state.data.edits||[]).map(e=>`<div><span><strong>${escape(e.name)}</strong><small>${escape(new Date(e.created).toLocaleString())}</small></span>${e.undone?'<span class="muted">Undone</span>':`<button class="button" data-undo-edit="${e.id}">Undo this edit</button>`}</div>`).join('')||'<p class="small-empty">No app edits yet. Existing Garmin and CSV records are unchanged.</p>'}</div></section>`;
+  return header('Log & edit training','Add a manual session, correct exercise names, or fill in missing loads and reps.')+resume+`<div class="workout-toolbar"><span>Saved changes update the shared training database.</span><button class="button button-dark" data-action="new-workout">+ Log workout</button></div><section class="panel feature-panel"><div class="table-heading"><div><h2>Your workouts</h2><p>Garmin timing and health measurements are retained when you edit its sets.</p></div></div><div class="table-scroll"><table><thead><tr><th>Date</th><th>Workout</th><th>Recorded sets</th><th>Missing load / reps</th><th>Edit</th></tr></thead><tbody>${workouts.length?'':'<tr><td colspan="5">No workouts in these filters. Log a workout or broaden the date range.</td></tr>'}${workouts.map(w=>{const rows=setsBySession.get(w.id)||[],unknown=rows.filter(s=>s.exercise.trim().toLowerCase()==='unknown').length;return `<tr><td>${date(w.date,true)}</td><td><button class="record-exercise" data-session="${escape(w.id)}">${escape(w.name)}</button></td><td>${rows.length}${unknown?`<small>${unknown} unidentified</small>`:''}</td><td>${rows.filter(s=>!present(s.weight)).length} / ${rows.filter(s=>!present(s.reps)).length}</td><td>${w.editIssue?`<button class="button" data-session="${escape(w.id)}">Review set identifiers</button>`:`<button class="button" data-edit-workout="${escape(w.id)}">Edit sets</button>`}</td></tr>`;}).join('')}</tbody></table></div></section><section class="panel feature-panel"><div class="table-heading"><div><h2>Recent changes</h2><p>Originals are backed up. Undo is available when that workout has no newer changes.</p></div></div><div class="edit-history">${(state.data.edits||[]).map(e=>`<div><span><strong>${escape(e.name)}</strong><small>${escape(new Date(e.created).toLocaleString())}</small></span>${e.undone?'<span class="muted">Undone</span>':`<button class="button" data-undo-edit="${e.id}">Undo this edit</button>`}</div>`).join('')||'<p class="small-empty">No app edits yet. Existing Garmin and CSV records are unchanged.</p>'}</div></section>`;
 }
 async function saveAction(body, savedForm=null) {
-  const response=await fetch('/api/actions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestId:crypto.randomUUID(),...body}),signal:AbortSignal.timeout(30000)});
+  const response=await fetch('/api/actions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestId:requestIdentity(),...body}),signal:AbortSignal.timeout(30000)});
   const result=await response.json();
   if(!response.ok){const error=new Error(result.error||'Could not save the change');error.status=response.status;throw error;}
-  if(savedForm){delete savedForm.dataset.dirty;settingsDrafts.delete(savedForm.id);}
+  if(savedForm){delete savedForm.dataset.dirty;settingsDrafts.delete(settingsDraftKey(savedForm));}
   await load(true,true);return result;
 }
-async function deleteFood(identity) {
-  try {
-    const response=await fetch('/api/food',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete',id:identity})});
-    const result=await response.json();
-    if(!response.ok)throw new Error(result.error||'Could not delete food entry');
+async function foodAction(body) {
+  const response=await fetch('/api/food',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(30000)});
+  const result=await response.json();
+  if(!response.ok){
+    const error=new Error(result.error||'Could not save the food entry.');
+    error.status=response.status;throw error;
+  }
+}
+function reviewFood(id,action) {
+  const entry=state.data.foodLog.find(e=>e.id===id);
+  if(!entry)return;
+  const request={action,id,expectedEntry:entry,requestId:requestIdentity()};
+  if(action==='delete'){
+    state.foodDeleteRequest=request;state.foodDeleteId=id;render();return;
+  }
+  const nutrientFields=[['calories','Calories (kcal)',5000],['protein_g','Protein (g)',1000],['carbs_g','Carbohydrates (g)',1000],['fat_g','Fat (g)',1000]];
+  openEditor(`<form id="food-form"><div class="dialog-heading"><div><h2 id="editor-title">Correct food entry</h2><p>${escape(date(localDay(entry.time),true))} · ${escape(entry.name)}</p></div><button type="button" class="icon-button close-editor" aria-label="Close food editor">${icon('close')}</button></div><div class="editor-fields"><label>Food name<input name="name" maxlength="120" required value="${escape(entry.name)}"></label>${nutrientFields.map(([key,label,max])=>`<label>${label}<input name="${key}" type="number" inputmode="decimal" min="0" max="${max}" step="any" required value="${escape(entry[key])}"></label>`).join('')}<label>Note<input name="note" maxlength="300" value="${escape(entry.note)}"></label></div><div class="form-error" role="alert"></div><div class="dialog-footer"><button type="submit" class="button button-dark">Save correction</button></div></form>`);
+  const form=$('#food-form');
+  let pending=null;
+  form.onsubmit=async event=>{
+    event.preventDefault();
+    const button=form.querySelector('[type="submit"]');
+    if(button.disabled)return;
+    button.disabled=true;
+    pending??={...entry,...Object.fromEntries(new FormData(form)),...request};
+    const inputs=form.querySelectorAll('input');
+    for(const input of inputs)input.disabled=true;
+    try{
+      await foodAction(pending);
+      if(form.isConnected)$('#editor-dialog').close();
+      await load(true,true);toast('Food entry corrected.');
+    }catch(error){
+      if(error.status>=400&&error.status<500){
+        pending=null;
+        for(const input of inputs)input.disabled=false;
+        button.textContent='Save correction';
+        form.querySelector('.form-error').textContent=error.message;
+      }else{
+        button.textContent='Retry correction';
+        form.querySelector('.form-error').textContent='Save could not be confirmed. Retry to check the same correction.';
+      }
+      button.disabled=false;
+    }
+  };
+}
+async function deleteFood(button) {
+  const request=state.foodDeleteRequest;
+  if(!request||request.id!==button.dataset.foodId||request.id!==state.foodDeleteId||button.disabled)return;
+  button.disabled=true;
+  try{
+    await foodAction(request);
     state.foodDeleteId='';await load(true,true);toast('Food entry deleted.');
-  } catch(error) {toast(error.message||'Could not delete food entry.');}
+  }catch(error){button.disabled=false;toast(error.message);}
 }
 function openEditor(content) {
   $('#editor-content').innerHTML=content;
@@ -610,7 +753,7 @@ function openEditor(content) {
 }
 function showGoalEditor(id=null) {
   const g=(state.data.goals||[]).find(g=>g.id===id)||{exercise:state.selected==='all'?'':state.selected,reps:5,weight:'',mode:'load_reps',deadline:''};
-  openEditor(`<form id="goal-form" data-id="${id||crypto.randomUUID()}"><div class="dialog-heading"><div><span class="eyebrow">TRAINING TARGET</span><h2 id="editor-title">${id?'Edit goal':'Set a goal'}</h2></div><button type="button" class="icon-button close-editor" aria-label="Close editor">${icon('close')}</button></div><div class="editor-fields"><label>Exercise<input name="exercise" list="exercise-options" required maxlength="120" value="${escape(g.exercise)}"></label><label>Goal type<select name="mode" id="goal-mode"><option value="load_reps" ${g.mode==='load_reps'?'selected':''}>Load and reps in the same set</option><option value="reps" ${g.mode==='reps'?'selected':''}>Reps only</option></select></label><label>Target load / assistance (kg)<input name="weight" type="number" min="0" max="2000" step="any" value="${g.weight??''}" ${g.mode==='reps'?'disabled':''}></label><label>Target reps<input name="reps" type="number" min="1" max="500" required value="${g.reps}"></label><label>Target date (optional)<input name="deadline" type="date" value="${g.deadline||''}"></label></div><div class="form-error" role="alert"></div><div class="dialog-footer"><span>One actual set must meet both targets. For assisted exercises, the kg target is maximum assistance; less assistance qualifies.</span><button type="submit" class="button button-dark">Save goal</button></div></form>${exerciseOptions()}`);
+  openEditor(`<form id="goal-form" data-revision="${escape(state.data.metadataRevision)}" data-id="${id||requestIdentity()}"><div class="dialog-heading"><div><span class="eyebrow">TRAINING TARGET</span><h2 id="editor-title">${id?'Edit goal':'Set a goal'}</h2></div><button type="button" class="icon-button close-editor" aria-label="Close editor">${icon('close')}</button></div><div class="editor-fields"><label>Exercise<input name="exercise" list="exercise-options" required maxlength="120" value="${escape(g.exercise)}"></label><label>Goal type<select name="mode" id="goal-mode"><option value="load_reps" ${g.mode==='load_reps'?'selected':''}>Load and reps in the same set</option><option value="reps" ${g.mode==='reps'?'selected':''}>Reps only</option></select></label><label>Target load / assistance (kg)<input name="weight" type="number" min="0" max="2000" step="any" value="${g.weight??''}" ${g.mode==='reps'?'disabled':'required'}></label><label>Target reps<input name="reps" type="number" min="1" max="500" required value="${g.reps}"></label><label>Target date (optional)<input name="deadline" type="date" value="${g.deadline||''}"></label></div><div class="form-error" role="alert"></div><div class="dialog-footer"><span>One actual set must meet both targets. For assisted exercises, the kg target is maximum assistance; less assistance qualifies.</span><button type="submit" class="button button-dark">Save goal</button></div></form>${exerciseOptions()}`);
 }
 function exerciseOptions(){return `<datalist id="exercise-options">${exerciseSummaries(state.data.sets).map(e=>`<option value="${escape(e.name)}"></option>`).join('')}</datalist>`;}
 // Drafts stay in this browser, keyed by workout so opening another cannot erase work.
@@ -621,6 +764,11 @@ function storedDrafts() {
 }
 function persistDraft() {
   if(!state.draft)return;
+  const discard=document.querySelector('[data-action="discard-draft"][data-confirmed]');
+  if(discard?.dataset?.confirmed){
+    delete discard.dataset.confirmed;discard.textContent='Discard draft';
+    $('#draft-status').textContent='Your draft is kept in this browser until saved or discarded.';
+  }
   try { const drafts=storedDrafts();drafts[state.draft.sessionId||'new']=state.draft;localStorage.setItem(draftStorageKey,JSON.stringify(drafts)); }
   catch { const status=$('#draft-status');if(status)status.textContent='Draft storage is unavailable. Keep this tab open until you save.'; }
 }
@@ -628,34 +776,53 @@ function removeStoredDraft(id) {
   try { const drafts=storedDrafts();delete drafts[id||'new'];localStorage.setItem(draftStorageKey,JSON.stringify(drafts)); } catch {}
 }
 function draftRows() {
-  return state.draft.sets.map((s,i)=>`<tr><td class="draft-number">Set ${i+1}</td><td data-label="Exercise"><input style="color:${exerciseVisual(s.exercise).color}" data-row="${i}" data-field="exercise" list="exercise-options" value="${escape(s.exercise)}" required maxlength="120" aria-label="Exercise for set ${i+1}"></td><td data-label="Load (kg)"><input data-row="${i}" data-field="weight" type="number" inputmode="decimal" min="0" max="2000" step="any" value="${s.weight??''}" aria-label="Load for set ${i+1}"></td><td data-label="Reps"><input data-row="${i}" data-field="reps" type="number" inputmode="numeric" min="0" max="500" value="${s.reps??''}" aria-label="Reps for set ${i+1}"></td><td data-label="Note (optional)"><input data-row="${i}" data-field="note" maxlength="1000" value="${escape(s.note)}" aria-label="Note for set ${i+1}"></td><td class="draft-actions"><button type="button" class="row-arrow" data-copy-draft="${i}" title="Duplicate set" aria-label="Duplicate set ${i+1}">+</button><button type="button" class="row-arrow" data-remove-draft="${i}" title="Remove set" aria-label="Remove set ${i+1}">×</button></td></tr>`).join('');
+  return state.draft.sets.map((s,i)=>`<tr><td class="draft-number"><span>Set ${i+1}</span>${s.previous?`<small class="previous-set">Previous: ${present(s.previous.weight)?number(s.previous.weight,2)+' kg':'—'} × ${present(s.previous.reps)?number(s.previous.reps)+' reps':'—'}</small>`:''}</td><td data-label="Exercise"><input style="color:${exerciseVisual(s.exercise).color}" data-row="${i}" data-field="exercise" list="exercise-options" value="${escape(s.exercise)}" required maxlength="120" aria-label="Exercise for set ${i+1}"></td><td data-label="Load (kg)"><input data-row="${i}" data-field="weight" type="number" inputmode="decimal" min="0" max="2000" step="any" value="${s.weight??''}" aria-label="Load for set ${i+1}"></td><td data-label="Reps"><input data-row="${i}" data-field="reps" type="number" inputmode="numeric" min="0" max="500" value="${s.reps??''}" aria-label="Reps for set ${i+1}"></td><td data-label="Note (optional)"><input data-row="${i}" data-field="note" maxlength="1000" value="${escape(s.note)}" aria-label="Note for set ${i+1}"></td><td class="draft-actions"><button type="button" class="row-arrow" data-copy-draft="${i}" title="Duplicate set" aria-label="Duplicate set ${i+1}">+</button><button type="button" class="row-arrow" data-remove-draft="${i}" title="Remove set" aria-label="Remove set ${i+1}">×</button></td></tr>`).join('');
 }
-function showWorkoutEditor(id=null, fresh=false) {
-  const w=state.data.workouts.find(w=>w.id===id),saved=storedDrafts()[id||'new'];
+function sessionRows(id){
+  return [...state.data.sets,...(state.data.hiddenSets||[])].filter(s=>s.sessionId===id)
+    .sort((a,b)=>(a.order||0)-(b.order||0)||(a.time||'').localeCompare(b.time||'')||(a.number||0)-(b.number||0));
+}
+function showWorkoutEditor(id=null, repeatId=null) {
+  const w=state.data.workouts.find(w=>w.id===id),template=state.data.workouts.find(w=>w.id===repeatId);
+  const saved=storedDrafts()[id||'new'];
+  if(w?.editIssue){toast(w.editIssue);return;}
   const usable=saved&&Array.isArray(saved.sets)&&saved.sets.length&&saved.requestId;
-  state.draft=!fresh&&usable?saved:{requestId:crypto.randomUUID(),sessionId:id,revision:w?.revision,
-    expectedMetadata:w?{name:w.name,date:w.date,duration:w.duration}:undefined,
-    name:w?.name||'Manual workout',date:w?.date||today(),durationMinutes:present(w?.duration)?w.duration/60:'',
-    sets:w?[...state.data.sets,...(state.data.hiddenSets||[])].filter(s=>s.sessionId===id).sort((a,b)=>(a.order||0)-(b.order||0)).map(s=>({id:s.id,exercise:s.exercise,weight:s.weight,reps:s.reps,note:s.note||''})):[{exercise:state.selected==='all'?'Barbell Bench Press':state.selected||'Barbell Bench Press',weight:null,reps:null,note:''}]};
+  let draftMessage='Your draft is kept in this browser until saved or discarded.';
+  if(usable){
+    state.draft=saved;
+    draftMessage=template?'Restored your unsaved workout. Save or discard it before repeating another session.':'Restored your unsaved draft.';
+  }else{
+    const rows=w?sessionRows(id).map(s=>({id:s.id,exercise:s.exercise,weight:s.weight,reps:s.reps,note:s.note||''})):
+      template?sessionRows(repeatId).map(s=>({exercise:s.exercise,weight:null,reps:null,note:'',previous:{weight:s.weight,reps:s.reps}})):[];
+    state.draft={requestId:requestIdentity(),sessionId:id,revision:w?.revision,
+      expectedMetadata:w?{name:w.name,date:w.date,duration:w.duration}:undefined,
+      name:w?.name||template?.name||'Manual workout',date:w?.date||today(),durationMinutes:present(w?.duration)?w.duration/60:'',
+      sets:rows.length||w?rows:[{exercise:state.selected==='all'?'Barbell Bench Press':state.selected||'Barbell Bench Press',weight:null,reps:null,note:''}]};
+    if(template){
+      draftMessage='Exercise order copied. Enter today’s actual measurements and remove any sets you skip.';
+      persistDraft();
+    }
+  }
   const draft=state.draft;
-  openEditor(`<form id="workout-form"><div class="dialog-heading"><div><span class="eyebrow">TRAINING JOURNAL</span><h2 id="editor-title">${w?'Edit workout':'Log a workout'}</h2><p>${w?'Correct details and sets. Unrelated watch measurements are retained.':'Add the date and actual sets you recorded. Leave unknown measurements blank.'}</p></div><button type="button" class="icon-button close-editor" aria-label="Close editor">${icon('close')}</button></div><p id="draft-status" class="feature-note" role="status">${!fresh&&usable?'Restored your unsaved draft.':'Your draft is kept in this browser until saved or discarded.'}</p><fieldset class="workout-inputs" ${draft.pending?'disabled':''}><div class="editor-fields"><label>Workout name<input name="name" required maxlength="180" value="${escape(draft.name)}"></label><label>Date<input name="date" type="date" required max="${today()}" value="${escape(draft.date)}"></label><label>Recorded duration (minutes, optional)<input name="durationMinutes" type="number" min="0" max="1440" step="any" value="${draft.durationMinutes??''}"></label></div><div class="draft-help">Each row is one set. Blank means unknown; zero means recorded zero. Load is in kg, using the same equipment and per-side convention as your history. Unknown exercises are included here so you can identify them.</div><div class="table-scroll"><table class="draft-table"><thead><tr><th>#</th><th>Exercise</th><th>kg</th><th>Reps</th><th>Note (optional)</th><th>+ / remove</th></tr></thead><tbody id="draft-rows">${draftRows()}</tbody></table></div><button type="button" class="button add-set" data-action="add-draft-set">+ Add set</button></fieldset><div class="form-error" role="alert">${draft.pending?'The last save has not been confirmed. Retry the same save to check its result safely.':''}</div><div class="dialog-footer"><button type="button" class="button" data-action="discard-draft" ${draft.pending?'disabled':''}>Discard draft</button><button type="submit" class="button button-dark">${draft.pending?'Retry save':'Save workout'}</button></div></form>${exerciseOptions()}`);
+  openEditor(`<form id="workout-form"><div class="dialog-heading"><div><span class="eyebrow">TRAINING JOURNAL</span><h2 id="editor-title">${w?'Edit workout':'Log a workout'}</h2><p>${w?'Correct details and sets. Unrelated watch measurements are retained.':'Add the date and actual sets you recorded. Leave unknown measurements blank.'}</p></div><button type="button" class="icon-button close-editor" aria-label="Close editor">${icon('close')}</button></div><p id="draft-status" class="feature-note" role="status">${escape(draftMessage)}</p><fieldset class="workout-inputs" ${draft.pending?'disabled':''}><div class="editor-fields"><label>Workout name<input name="name" required maxlength="180" value="${escape(draft.name)}"></label><label>Date<input name="date" type="date" required max="${today()}" value="${escape(draft.date)}"></label><label>Recorded duration (minutes, optional)<input name="durationMinutes" type="number" min="0" max="1440" step="any" value="${draft.durationMinutes??''}"></label></div><details class="draft-help"><summary>Load and rep conventions</summary><p>Each row records one set. Leave missing values blank. Enter 0 for a recorded zero. Use kilograms and the same equipment and per-side convention as your history. You can rename unidentified exercises here.</p></details><div class="table-scroll"><table class="draft-table"><thead><tr><th>#</th><th>Exercise</th><th>kg</th><th>Reps</th><th>Note (optional)</th><th>+ / remove</th></tr></thead><tbody id="draft-rows">${draftRows()}</tbody></table></div><button type="button" class="button add-set" data-action="add-draft-set">+ Add set</button></fieldset><div class="form-error" role="alert">${draft.pending?'The last save has not been confirmed. Retry the same save to check its result safely.':''}</div><div class="dialog-footer"><button type="button" class="button" data-action="discard-draft" ${draft.pending?'disabled':''}>Discard draft</button><button type="submit" class="button button-dark">${draft.pending?'Retry save':'Save workout'}</button></div></form>${exerciseOptions()}`);
 }
 
 function proposedSets(rows,exercise='') {
+  if(!rows.length)return '<span class="muted">No sets recorded</span>';
   return rows.map((s,i)=>`<span class="plan-set"><small>${i+1}</small>${loadLabel(exercise,s.weight)} <span class="muted">×</span> ${number(s.reps)} <span class="muted">reps</span></span>`).join('');
 }
 function progressionSettings(plan) {
   if(!plan.exercises.length)return '';
-  return `<details class="panel muscle-editor"><summary>Rep ranges & equipment increments</summary><p>Settings apply to this exercise across all workout types and Telegram images. Use your actual equipment increment; recorded loads are not converted per dumbbell or machine.</p><form id="progression-form" data-revision="${escape(state.data.metadataRevision)}"><div class="table-scroll"><table><thead><tr><th>Exercise</th><th>Lower rep target</th><th>Rep ceiling</th><th>Increase by (kg)</th></tr></thead><tbody>${plan.exercises.map(e=>`<tr data-progression-name="${escape(e.name)}"><td>${exerciseLabel(e.name)}</td><td><input aria-label="${escape(e.name)} lower reps" data-rule="repMin" type="number" min="1" max="29" required value="${e.rule.repMin}"></td><td><input aria-label="${escape(e.name)} rep ceiling" data-rule="repMax" type="number" min="2" max="30" required value="${e.rule.repMax}"></td><td><input aria-label="${escape(e.name)} weight increment" data-rule="weightStep" type="number" min="0.25" max="50" step="0.25" required value="${e.rule.weightStep}"><small class="cell-description">${e.rule.stepSource==='equipment'?'Using '+escape(e.rule.equipmentName)+' available loads':e.rule.stepSource==='custom'?'Your increment':'Suggested — check equipment'}</small></td></tr>`).join('')}</tbody></table></div><button class="button button-dark" type="submit">Save progression settings</button><span class="form-error" role="status"></span></form></details>`;
+  return `<details class="panel muscle-editor"><summary>Rep ranges & equipment increments</summary><p>Settings apply to this exercise across all workout types and Telegram images. Use your actual equipment increment; recorded loads are not converted per dumbbell or machine.</p><form id="progression-form" data-plan-type="${escape(plan.type)}" data-revision="${escape(state.data.metadataRevision)}"><div class="table-scroll"><table><thead><tr><th>Exercise</th><th>Lower rep target</th><th>Rep ceiling</th><th>Increase by (kg)</th></tr></thead><tbody>${plan.exercises.map(e=>`<tr data-progression-name="${escape(e.name)}"><td>${exerciseLabel(e.name)}</td><td><input aria-label="${escape(e.name)} lower reps" data-rule="repMin" type="number" min="1" max="29" required value="${e.rule.repMin}"></td><td><input aria-label="${escape(e.name)} rep ceiling" data-rule="repMax" type="number" min="2" max="30" required value="${e.rule.repMax}"></td><td><input aria-label="${escape(e.name)} weight increment" data-rule="weightStep" type="number" min="0.25" max="50" step="0.25" required value="${e.rule.weightStep}"><small class="cell-description">${e.rule.stepSource==='equipment'?'Using '+escape(e.rule.equipmentName)+' available loads':e.rule.stepSource==='custom'?'Your increment':'Suggested — check equipment'}</small></td></tr>`).join('')}</tbody></table></div><button class="button button-dark" type="submit">Save progression settings</button><span class="form-error" role="status"></span></form></details>`;
 }
 
 function nextSessionPage() {
   const plans=state.data.nextSessions||[],plan=plans.find(p=>p.type===state.planType)||plans[0];
   const heading=`<section class="page-heading"><div><div class="eyebrow">YOUR NEXT WORKOUT</div><h1>Next session<span class="heading-dot">.</span></h1><p>Proposed targets from your named workout history. Refresh after syncing a completed session.</p></div></section>`;
-  if(!plan)return heading+'<section class="panel empty-panel">Proposals will appear after the training history refreshes.</section>';
-  const names={weight_progress:'Increase weight',progress:'Add one rep',repeat:'Repeat & build',review:'Review first'};
+  if(!plan)return heading+renderTimeBudget(state.data)+'<section class="panel empty-panel">Proposals will appear after the training history refreshes.</section>';
+  const names={weight_progress:'Increase weight',progress:'Add one rep',repeat:'Repeat & build',review:'Review first',shared_load:'Shared exercise load'};
   const latest=(state.data.recovery||[]).find(r=>r.date===today());
-  return heading+`<div class="plan-types" role="group" aria-label="Choose workout type">${plans.map(p=>`<button class="panel plan-type ${p.type===plan.type?'selected':''}" data-plan-type="${p.type}" aria-pressed="${p.type===plan.type}"><strong>${escape(p.name)}</strong><span>Last: ${date(p.baselineDate,true)}</span><small>${p.exercises.length} exercises · ${p.evidenceCount} named sessions</small></button>`).join('')}</div><section class="panel plan-intro"><div><span class="eyebrow">PROPOSAL · ${escape(plan.name.toUpperCase())}</span><h2>${escape(plan.name)} — next targets</h2><p>${escape(plan.notice)}</p><p class="muted">Uses full history. Leg Day 1 / 2 are treated as Lower 1 / 2. Generic “Strength” workouts are not assigned a type; future sessions are ignored.</p></div><div class="plan-downloads">${Array.from({length:plan.imagePages},(_,i)=>`<a class="button button-dark" href="/api/plan.png?type=${plan.type}&page=${i}" download="form-${plan.type}-${i+1}.png">${icon('download')} Download image${plan.imagePages>1?' '+(i+1):''}</a>`).join('')}${plan.baselineId?`<button class="text-link" data-session="${escape(plan.baselineId)}">Open baseline workout ${icon('arrow')}</button>`:''}</div></section>${latest?`<div class="plan-recovery"><span>Today’s context · ${date(latest.date,true)}</span><span>Sleep <strong>${number(latest.sleepHours,1)} h</strong></span><span>HRV <strong>${number(latest.hrv)} ms</strong></span><span>RHR <strong>${number(latest.restingHR)} bpm</strong></span><small>Context only; targets are not scaled by watch readings.</small></div>`:''}<section class="panel feature-panel"><div class="table-heading"><div><h2>Set-by-set proposal</h2><p>Build reps to the ceiling, then increase eligible loads and reset reps. BW means bodyweight only; missing measurements remain blank.</p></div></div><div class="table-scroll"><table class="plan-table"><thead><tr><th>Exercise</th><th>Last session · ${date(plan.baselineDate)}</th><th>Proposed next session</th><th>Why this target?</th></tr></thead><tbody>${plan.exercises.map(e=>`<tr><td><button class="record-exercise" data-view-exercise="${escape(e.name)}">${exerciseLabel(e.name)}</button><span class="signal ${['progress','weight_progress'].includes(e.status)?'progressing':e.status==='review'?'watch':'insufficient'}">${names[e.status]}</span></td><td>${proposedSets(e.previous,e.name)}</td><td class="proposed-targets">${proposedSets(e.proposed,e.name)}</td><td><p>${escape(e.reason)}</p><details class="plan-evidence"><summary>Recent ${escape(plan.name)} records</summary>${e.history.map(h=>`<div><button class="table-date" data-session="${escape(h.id)}">${date(h.date,true)}</button>${proposedSets(h.sets,e.name)}</div>`).join('')}</details></td></tr>`).join('')||'<tr><td colspan="4">No recorded exercise sets for this type yet. Name a completed workout Upper 1, Upper 2, Lower 1 or Lower 2 to establish its history.</td></tr>'}</tbody></table></div></section>${progressionSettings(plan)}${plan.omittedExercises.length?`<section class="panel plan-intro"><div><h2>Seen earlier, absent from your latest session</h2><p>${plan.omittedExercises.map(e=>escape(e.name)+' ('+date(e.lastDate,true)+')').join(' · ')}</p><p class="muted">These were not added automatically; the proposal follows your latest exercise list.</p></div></section>`:''}<details class="panel muscle-editor"><summary>How the proposal works</summary><p>Exercise order and set counts come from the latest named session. For each load group, all sets must reach the rep ceiling in two comparable sessions before its load increases by the equipment increment and its reps reset to the lower target. Top sets and back-off sets are checked separately. Until then, one set can gain one rep within the range. Default range: 8–12. Suggested increments: 2.5 kg at loads of 25+ kg, 1 kg at 10–25 kg, otherwise 0.5 kg; confirm or change these to match your equipment. An increase over 10%, falling reps, incomplete data, unclear bodyweight loads or a long break pauses progression.</p><p>These are editable-in-practice targets, not a prediction or a completed log. Choose achievable reps with consistent technique and adjust to how you feel. <a class="text-link" href="https://acsm.org/resistance-training-guidelines-update-2026/" target="_blank" rel="noreferrer">ACSM training background ↗</a></p></details>`;
+  return heading+`<div class="plan-types" role="group" aria-label="Choose workout type">${plans.map(p=>`<button class="panel plan-type ${p.type===plan.type?'selected':''}" data-plan-type="${p.type}" aria-pressed="${p.type===plan.type}"><strong>${escape(p.name)}</strong><span>Last: ${date(p.baselineDate,true)}</span><small>${p.exercises.length} exercises · ${p.evidenceCount} named sessions</small></button>`).join('')}</div><section class="panel plan-intro"><div><span class="eyebrow">PROPOSAL · ${escape(plan.name.toUpperCase())}</span><h2>${escape(plan.name)} — next targets</h2><p>${escape(plan.notice)}</p><p class="muted">The same exercise shares its latest proposed load across all four routines. Set counts and rep targets can differ. Leg Day 1 / 2 are treated as Lower 1 / 2. Generic “Strength” workouts are not assigned a type; future sessions are ignored.</p></div><div class="plan-downloads">${Array.from({length:plan.imagePages},(_,i)=>`<a class="button button-dark" href="/api/plan.png?type=${plan.type}&page=${i}" download="form-${plan.type}-${i+1}.png">${icon('download')} Download image${plan.imagePages>1?' '+(i+1):''}</a>`).join('')}${plan.baselineId?`<button class="text-link" data-session="${escape(plan.baselineId)}">Open baseline workout ${icon('arrow')}</button>`:''}</div></section>${latest?`<div class="plan-recovery"><span>Today’s context · ${date(latest.date,true)}</span><span>Sleep <strong>${number(latest.sleepHours,1)} h</strong></span><span>HRV <strong>${number(latest.hrv)} ms</strong></span><span>RHR <strong>${number(latest.restingHR)} bpm</strong></span><small>Context only; targets are not scaled by watch readings.</small></div>`:''}<section class="panel feature-panel"><div class="table-heading"><div><h2>Set-by-set proposal</h2><p>Build reps to the ceiling, then increase eligible loads and reset reps. BW means bodyweight only; missing measurements remain blank.</p></div></div><div class="table-scroll"><table class="plan-table"><thead><tr><th>Exercise</th><th>Last session · ${date(plan.baselineDate)}</th><th>Proposed next session</th><th>Why this target?</th></tr></thead><tbody>${plan.exercises.map(e=>`<tr><td><button class="record-exercise" data-view-exercise="${escape(e.name)}">${exerciseLabel(e.name)}</button><span class="signal ${['progress','weight_progress'].includes(e.status)?'progressing':e.status==='review'?'watch':'insufficient'}">${names[e.status]}</span></td><td>${proposedSets(e.previous,e.name)}</td><td class="proposed-targets">${proposedSets(e.proposed,e.name)}</td><td><p>${escape(e.reason)}</p><details class="plan-evidence"><summary>Recent ${escape(plan.name)} records</summary>${e.history.map(h=>`<div><button class="table-date" data-session="${escape(h.id)}">${date(h.date,true)}</button>${proposedSets(h.sets,e.name)}</div>`).join('')}</details></td></tr>`).join('')||'<tr><td colspan="4">No recorded exercise sets for this type yet. Name a completed workout Upper 1, Upper 2, Lower 1 or Lower 2 to establish its history.</td></tr>'}</tbody></table></div></section>${renderTimeBudget(state.data,plan.baselineId)}${progressionSettings(plan)}${plan.omittedExercises.length?`<section class="panel plan-intro"><div><h2>Seen earlier, absent from your latest session</h2><p>${plan.omittedExercises.map(e=>escape(e.name)+' ('+date(e.lastDate,true)+')').join(' · ')}</p><p class="muted">These are outside the retained structure; older exercises are not accumulated into the proposal.</p></div></section>`:''}<details class="panel muscle-editor"><summary>How the proposal works</summary><p>Exercise order and set counts normally come from the latest named session. If it only leaves sets out of the previous same-type session within 42 days, the previous structure is retained; affected exercises repeat earlier targets without progression. Repeating the reduced structure establishes a new baseline. Substitutions and added sets use the latest structure. For each load group, all sets must reach the rep ceiling in two comparable sessions before its load increases by the equipment increment and its reps reset to the lower target. Top sets and back-off sets are checked separately. Until then, one set can gain one rep within the range. Default range: 8–12. Suggested increments: 2.5 kg at loads of 25+ kg, 1 kg at 10–25 kg, otherwise 0.5 kg; confirm or change these to match your equipment. An increase over 10%, falling reps, incomplete data, unclear bodyweight loads or a long break pauses progression.</p><p>These are editable-in-practice targets, not a prediction or a completed log. Choose achievable reps with consistent technique and adjust to how you feel. <a class="text-link" href="https://acsm.org/resistance-training-guidelines-update-2026/" target="_blank" rel="noreferrer">ACSM training background ↗</a></p></details>`;
 }
 
 function operationsPage() {
@@ -711,7 +878,7 @@ function garminPage() {
   return `<section class="page-heading"><div><div class="eyebrow">GARMIN CONNECT</div><h1>Garmin workouts<span class="heading-dot">.</span></h1><p>Edit your Garmin strength templates or fill next-session targets. <a class="text-link" href="#operations">View operation recovery →</a></p></div><button class="button button-dark" data-action="load-garmin">${rows?'Refresh workouts':'Load Garmin workouts'}</button></section><div class="notice">Full edit lets you change exercises, sets, order, rest, repeat blocks, title and notes. Every save has a review step.</div><section class="panel feature-panel"><div class="table-heading"><h2>Your Garmin workout library</h2></div>${rows?`<div class="table-scroll"><table><thead><tr><th>Garmin workout</th><th>Next-session plan</th><th>Update</th></tr></thead><tbody>${rows.map(w=>`<tr><td>${escape(w.name)}</td><td>${escape((state.data.nextSessions||[]).find(p=>p.type===w.planType)?.name||'Manual edits available')}</td><td><div class="garmin-library-actions"><button class="button button-dark" data-full-garmin="${w.id}">Full edit</button><button class="button" data-preview-garmin="${w.id}">Quick weights & reps</button></div></td></tr>`).join('')||'<tr><td colspan="3">No strength workout templates found in Garmin Connect.</td></tr>'}</tbody></table></div>`:'<p class="small-empty">Load your existing Garmin workouts to choose one to update.</p>'}</section>`;
 }
 async function garminRequest(body) {
-  const response=await fetch('/api/garmin-workouts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const response=await fetch('/api/garmin-workouts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(90000)});
   const result=await response.json();
   if(!response.ok)throw new Error(result.error||'Garmin request failed');
   return result;
@@ -739,7 +906,7 @@ function groupGarminChanges(changes) {
 function showGarminEditor(result) {
   state.garminPreview=result;
   const groups=groupGarminRows(result.editable);
-  openEditor(`<form id="garmin-form" data-preview="${result.previewId}" class="garmin-editor"><div class="dialog-heading"><div><span class="eyebrow">EDIT GARMIN WORKOUT</span><h2 id="editor-title">${escape(result.name)}</h2><p>Exercises are grouped below. Change only the weight and reps for each set target.</p></div><button type="button" class="icon-button close-editor" aria-label="Close editor">${icon('close')}</button></div><div class="garmin-toolbar"><div><strong>${groups.length} exercises · ${groups.reduce((total,g)=>total+g.sets,0)} sets</strong><span>Garmin step numbers stay visible within each exercise.</span></div><button type="button" class="button" data-action="fill-garmin-targets">Fill next-session targets</button></div><div class="garmin-groups">${groups.map((group,i)=>`<section class="garmin-group" aria-labelledby="garmin-group-${i}"><div class="garmin-group-heading"><div><span class="garmin-group-number">${String(i+1).padStart(2,'0')}</span><div><h3 id="garmin-group-${i}">${exerciseLabel(group.exercise)}</h3><p>${group.sets} ${group.sets===1?'set':'sets'} · ${group.rows.length} ${group.rows.length===1?'target':'targets'}</p></div></div>${group.rows.some(r=>r.sets>1)?'<span class="garmin-shared-badge">Shared target</span>':''}</div><div class="garmin-set-list">${group.rows.map(r=>`<div class="garmin-set-row" data-garmin-row="${r.index}"><div class="garmin-set-identity"><strong>${r.setLabel}</strong><small>Garmin step ${number(r.stepOrder)}${r.sets>1?' · edits all '+r.sets+' sets':''}</small></div><div class="garmin-current"><small>Loaded target</small><strong>${r.weightEditable?number(r.weight,2)+' kg':'Other unit'} × ${number(r.reps)} reps</strong></div><label>Weight <span>kg</span><input aria-label="${escape(group.exercise)} ${r.setLabel} weight" data-garmin-weight type="number" min="0" max="2000" step="any" value="${r.weight??''}" ${r.weightEditable?'':'disabled'}></label><label>Reps<input aria-label="${escape(group.exercise)} ${r.setLabel} reps" data-garmin-reps type="number" min="1" max="500" step="1" value="${r.reps??''}"></label></div>`).join('')}</div></section>`).join('')||'<p class="garmin-empty">No editable rep-based steps were found in this workout.</p>'}</div><div id="garmin-fill-notes" class="garmin-skipped" role="status"></div><div class="form-error" role="alert"></div><div class="dialog-footer"><span>A shared target edits every set shown in its range. Filling suggestions can separate them.</span><button type="submit" class="button button-dark" ${result.editable.length?'':'disabled'}>Review changes</button></div></form>`);
+  openEditor(`<form id="garmin-form" data-preview="${result.previewId}" class="garmin-editor"><div class="dialog-heading"><div><span class="eyebrow">EDIT GARMIN WORKOUT</span><h2 id="editor-title">${escape(result.name)}</h2><p>Exercises are grouped below. Change only the weight and reps for each set target.</p></div><button type="button" class="icon-button close-editor" aria-label="Close editor">${icon('close')}</button></div><div class="garmin-toolbar"><div><strong>${groups.length} exercises · ${groups.reduce((total,g)=>total+g.sets,0)} sets</strong><span>Garmin step numbers stay visible within each exercise.</span></div>${result.canSuggest===false?'':'<button type="button" class="button" data-action="fill-garmin-targets">Fill next-session targets</button>'}</div><div class="garmin-groups">${groups.map((group,i)=>`<section class="garmin-group" aria-labelledby="garmin-group-${i}"><div class="garmin-group-heading"><div><span class="garmin-group-number">${String(i+1).padStart(2,'0')}</span><div><h3 id="garmin-group-${i}">${exerciseLabel(group.exercise)}</h3><p>${group.sets} ${group.sets===1?'set':'sets'} · ${group.rows.length} ${group.rows.length===1?'target':'targets'}</p></div></div>${group.rows.some(r=>r.sets>1)?'<span class="garmin-shared-badge">Shared target</span>':''}</div><div class="garmin-set-list">${group.rows.map(r=>`<div class="garmin-set-row" data-garmin-row="${r.index}"><div class="garmin-set-identity"><strong>${r.setLabel}</strong><small>Garmin step ${number(r.stepOrder)}${r.sets>1?' · edits all '+r.sets+' sets':''}</small></div><div class="garmin-current"><small>Loaded target</small><strong>${r.weightEditable?number(r.weight,2)+' kg':'Other unit'} × ${number(r.reps)} reps</strong></div><label>Weight <span>kg</span><input aria-label="${escape(group.exercise)} ${r.setLabel} weight" data-garmin-weight type="number" min="0" max="2000" step="any" value="${r.weight??''}" ${r.weightEditable?'':'disabled'}></label><label>Reps<input aria-label="${escape(group.exercise)} ${r.setLabel} reps" data-garmin-reps type="number" min="1" max="500" step="1" value="${r.reps??''}"></label></div>`).join('')}</div></section>`).join('')||'<p class="garmin-empty">No editable rep-based steps were found in this workout.</p>'}</div><div id="garmin-fill-notes" class="garmin-skipped" role="status"></div><div class="form-error" role="alert"></div><div class="dialog-footer"><span>A shared target edits every set shown in its range. Filling suggestions can separate them.</span><button type="submit" class="button button-dark" ${result.editable.length?'':'disabled'}>Review changes</button></div></form>`);
 }
 
 function showGarminPreview(result) {
@@ -827,7 +994,7 @@ function equipmentPanel() {
 }
 
 function exerciseVolumePreferences() {
-  return `<section class="panel feature-panel exercise-volume-controls" aria-label="Exercise volume calculation"><div class="table-heading"><div><h2>Exercise volume</h2><p>Choose how volume is shown in the exercise library and charts.</p></div></div><div class="segmented" role="group" aria-label="Volume calculation">${[['recorded','Recorded load × reps'],['adjusted','Adjusted volume']].map(([mode,label])=>`<button data-exercise-volume="${mode}" class="${state.exerciseVolumeMode===mode?'active':''}" aria-pressed="${state.exerciseVolumeMode===mode}">${label}</button>`).join('')}</div><p>${exerciseVolumeExplanation(state.exerciseVolumeMode==='recorded')} Applies only to Exercises and is remembered in this browser.</p></section>`;
+  return `<section class="panel feature-panel exercise-volume-controls" aria-label="Exercise volume calculation"><div class="table-heading"><div><h2>Exercise volume</h2><p>Choose how volume is shown in the exercise library and charts.</p></div></div><div class="segmented" role="group" aria-label="Volume calculation">${[['recorded','Recorded load × reps'],['adjusted','Adjusted volume']].map(([mode,label])=>`<button data-exercise-volume="${mode}" class="${state.exerciseVolumeMode===mode?'active':''}" aria-pressed="${state.exerciseVolumeMode===mode}">${label}</button>`).join('')}</div><p>${exerciseVolumeExplanation(state.exerciseVolumeMode==='recorded')} Applies only to the exercise library and is remembered in this browser.</p></section>`;
 }
 function preferencesPage() {
   const active=document.documentElement.dataset.theme;
@@ -849,13 +1016,13 @@ function nutritionPage() {
   const entries=(state.data.foodLog||[]).filter(e=>(!selected.from||dayOf(e.time)>=selected.from)&&(!selected.to||dayOf(e.time)<=selected.to));
   const totals=entries.reduce((a,e)=>{for(const key of ['calories','protein_g','carbs_g','fat_g'])a[key]+=Number(e[key])||0;return a;},{calories:0,protein_g:0,carbs_g:0,fat_g:0});
   const grouped={};for(const e of (state.data.foodLog||[])){const day=dayOf(e.time);grouped[day]=(grouped[day]||0)+e.calories;}
-  const days=Object.entries(grouped).sort(([a],[b])=>compareExerciseStack(a,b,state.data?.muscleOverrides||{}));const top=Math.max(1,...days.map(([,v])=>v));
+  const days=Object.entries(grouped).sort(([a],[b])=>a.localeCompare(b));const top=Math.max(1,...days.map(([,v])=>v));
   const reading=(state.data.recovery||[]).find(row=>row.date===nutritionDay())||{};
   return header('Nutrition','Estimated food intake from your private Telegram bot. Send a food photo, optionally with your hand in frame, or a short description such as “3 bananas”.')+
     `<section class="nutrition-stats" aria-label="Nutrition totals for ${escape(nutritionDay())}">${[['calories','Calories','kcal'],['protein_g','Protein','g'],['carbs_g','Carbs','g'],['fat_g','Fat','g']].map(([key,label,unit])=>`<article class="panel" style="--metric-color:var(--metric-${key})"><span>${label}</span><strong>${entries.length?number(totals[key],1):'—'} <small>${unit}</small></strong></article>`).join('')}</section><p class="feature-note">${entries.length?'Totals include logged entries only; they may not cover the full day.':'No food entries for this day. Missing intake is not zero intake.'}</p>`+
     `<section class="panel nutrition-panel"><div class="table-heading"><div><h2>Daily calorie history</h2><p>Select a day to view its calories, macros and food log.</p></div></div>${days.length?`<div class="nutrition-bars" data-motion-chart="true" data-motion-key="nutrition-history" role="group" aria-label="Select a nutrition day">${days.map(([day,value])=>`<button type="button" class="nutrition-day ${day===nutritionDay()?'selected':''}" data-nutrition-day="${escape(day)}" aria-pressed="${day===nutritionDay()}" title="${escape(day)} · ${number(value)} kcal"><span>${number(value)}</span><i data-motion-bar="y" data-point-value="${value}" data-motion-label="${day}" style="height:${Math.max(3,value/top*100)}%"></i><small>${date(day)}</small></button>`).join('')}</div>`:'<p class="nutrition-empty">No food logged for this day. Send a photo to your Telegram bot or type /food 3 bananas.</p>'}</section>`+
     nutritionComparison(nutritionDay(),entries,reading)+
-    `<section class="panel nutrition-panel"><div class="table-heading"><div><h2>Food log · ${date(nutritionDay(),true)}</h2><p>Portions and nutrition are estimates; check labels or weighed amounts when precision matters.</p></div></div>${entries.length?`<div class="nutrition-list">${entries.map(e=>`<article><div><strong>${escape(e.name)}</strong><small>${escape(dayOf(e.time))} · ${new Date(e.time).toLocaleTimeString('en-GB',{timeZone:zone,hour:'2-digit',minute:'2-digit'})}${e.items?.length?' · '+escape(e.items.map(i=>i.name+' '+i.portion).join(', ')):''}</small>${e.note?`<small>${escape(e.note)}</small>`:''}</div><div class="nutrition-values"><strong>${number(e.calories)} kcal</strong><span>P ${number(e.protein_g,1)} · C ${number(e.carbs_g,1)} · F ${number(e.fat_g,1)} g</span>${state.foodDeleteId===e.id?`<span class="nutrition-delete-confirm">Delete this entry? <button type="button" data-action="food-delete-confirm" data-food-id="${escape(e.id)}">Yes, delete</button><button type="button" data-action="food-delete-cancel">Cancel</button></span>`:`<button type="button" class="nutrition-delete" data-action="food-delete" data-food-id="${escape(e.id)}" aria-label="Delete ${escape(e.name)}">Delete</button>`}</div></article>`).join('')}</div>`:'<p class="nutrition-empty">No entries to show.</p>'}</section>`;
+    `<section class="panel nutrition-panel"><div class="table-heading"><div><h2>Food log · ${date(nutritionDay(),true)}</h2><p>Portions and nutrition are estimates; check labels or weighed amounts when precision matters.</p></div></div>${entries.length?`<div class="nutrition-list">${entries.map(e=>`<article><div><strong>${escape(e.name)}</strong><small>${escape(dayOf(e.time))} · ${new Date(e.time).toLocaleTimeString('en-GB',{timeZone:zone,hour:'2-digit',minute:'2-digit'})}${e.items?.length?' · '+escape(e.items.map(i=>i.name+' '+i.portion).join(', ')):''}</small>${e.note?`<small>${escape(e.note)}</small>`:''}</div><div class="nutrition-values"><strong>${number(e.calories)} kcal</strong><span>P ${number(e.protein_g,1)} · C ${number(e.carbs_g,1)} · F ${number(e.fat_g,1)} g</span>${state.foodDeleteId===e.id?`<span class="nutrition-delete-confirm">Delete this entry? <button type="button" data-action="food-delete-confirm" data-food-id="${escape(e.id)}">Yes, delete</button><button type="button" data-action="food-delete-cancel">Cancel</button></span>`:`<button type="button" class="text-link" data-action="food-edit" data-food-id="${escape(e.id)}" aria-label="Correct ${escape(e.name)}">Edit</button> <button type="button" class="nutrition-delete" data-action="food-delete" data-food-id="${escape(e.id)}" aria-label="Delete ${escape(e.name)}">Delete</button>`}</div></article>`).join('')}</div>`:'<p class="nutrition-empty">No entries to show.</p>'}</section>`;
 }
 
 function syncPage() {
@@ -875,6 +1042,9 @@ function syncPage() {
 
 const settingsDrafts=new Map();
 const settingsFormSelector='#equipment-form,#volume-form,#muscle-form,#progression-form';
+function settingsDraftKey(form) {
+  return form.dataset.planType ? form.id + '/' + form.dataset.planType : form.id;
+}
 function markSettingsDirty(target) {
   const form=target.closest(settingsFormSelector);
   if(!form)return;
@@ -900,22 +1070,28 @@ function render() {
   const time = new Date(state.data.refreshedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
   $('#sync-status').textContent = state.refreshError ? (state.refreshBusy?'Update in progress':'Refresh unavailable') : `Refreshed ${time}`;
   }
+  for(const form of document.querySelectorAll(settingsFormSelector))if(form.dataset.dirty)settingsDrafts.set(settingsDraftKey(form),form);
   if(state.page==='operations'){
     $('#main').innerHTML=operationsPage();
     restoreRenderFocus(focused);
     return;
   }
   if(!state.data){$('#main').innerHTML=state.refreshError?unavailableDashboard():loadingSkeleton();return;}
-  const view = current();
-  const templates = {overview,nutrition:nutritionPage,sync:syncPage,next:nextSessionPage,exercises:exercisesPage,workouts:workoutsPage,records:recordsPage,recovery:recoveryPage,insights:insightsPage,volume:volumePage,compare:comparePage,logging:loggingPage,goals:goalsPage,garmin:garminPage,preferences:preferencesPage};
+  const templates = {overview,running:runningPage,nutrition:nutritionPage,sync:syncPage,next:nextSessionPage,exercises:exercisesPage,workouts:workoutsPage,records:recordsPage,recovery:recoveryPage,insights:insightsPage,volume:volumePage,compare:comparePage,logging:loggingPage,goals:goalsPage,garmin:garminPage,preferences:preferencesPage};
   const warning=state.refreshError?`<div class="refresh-notice" role="status"><div><strong>Showing previously loaded history</strong><span>${state.refreshBusy?'Training records are being updated. Try again shortly for a complete snapshot.':'The latest refresh failed. Your saved data is still available below.'}</span></div><button class="button" data-action="retry">Try again</button></div>`:'';
-  for(const form of document.querySelectorAll(settingsFormSelector))if(form.dataset.dirty)settingsDrafts.set(form.id,form);
-  $('#main').innerHTML = warning+templates[state.page](view);
-  for(const [id,form] of settingsDrafts){const replacement=document.getElementById(id);if(replacement){replacement.replaceWith(form);const disclosure=form.closest('details');if(disclosure)disclosure.open=true;}}
+  let view;
+  if(['workouts','logging'].includes(state.page))view=filterData(state.data,range(),state.source);
+  else if(['overview','exercises','records','insights','volume','compare'].includes(state.page))view=current();
+  const pending=state.data.pendingImports;
+  const importNotice=pending?`<div class="refresh-notice" role="status"><div><strong>${pending} interrupted workout import${pending===1?'':'s'}</strong><span>These sessions are excluded from history and plans until the reviewed TSV import resumes. Rerun it with the original file and review profile.</span></div></div>`:'';
+  const unlinked=state.data.unlinkedStrengthRows;
+  const dataNotice=unlinked?`<div class="refresh-notice" role="status"><div><strong>Unlinked strength records</strong><span>${unlinked} source row${unlinked===1?' is':'s are'} missing a workout identifier. These rows are available in the full Excel export under Source records.</span></div></div>`:'';
+  $('#main').innerHTML = warning+importNotice+dataNotice+templates[state.page](view);
+  for(const [id,form] of settingsDrafts){const replacement=document.getElementById(form.id);if(replacement&&settingsDraftKey(replacement)===id){replacement.replaceWith(form);const disclosure=form.closest('details');if(disclosure)disclosure.open=true;}}
   restoreRenderFocus(focused);
   bindChart();
+  if(state.page==='running')ensureRunningDetail(()=>{if(state.page==='running')render();});
 }
-let chartClickUntil=0;
 function zoomToDates(dates) {
   if(!dates)return;
   state.zoomHistory??=[];
@@ -933,7 +1109,10 @@ function bindTimeSelection(root=document) {
     const hint=document.createElement('div');hint.className='chart-zoom-hint';
     hint.textContent='Drag across the graph to select dates · Esc cancels · Date inputs also available above';
     svg.parentElement.append(hint);
-    let drag=null,overlay=null;
+    let drag=null,overlay=null,ignoreClickUntil=0;
+    svg.addEventListener('click',event=>{
+      if(Date.now()<ignoreClickUntil){event.preventDefault();event.stopImmediatePropagation();}
+    },true);
     const position=event=>{
       const matrix=svg.getScreenCTM();if(!matrix)return null;
       const point=svg.createSVGPoint();point.x=event.clientX;point.y=event.clientY;
@@ -971,7 +1150,7 @@ function bindTimeSelection(root=document) {
       if(!drag||event.pointerId!==drag.id)return;
       const point=position(event);
       const dates=drag.active&&point?chartDateRange(start,end,left,right,drag.x,point.x,svg.dataset.workoutDates?JSON.parse(svg.dataset.workoutDates):null):null;
-      if(drag.active)chartClickUntil=Date.now()+350;
+      if(drag.active)ignoreClickUntil=Date.now()+350;
       clear();if(dates)zoomToDates(dates);
     });
     svg.addEventListener('pointercancel',clear);
@@ -1025,10 +1204,13 @@ function workoutRecovery(day) {
 function openWorkout(id) {
   const workout = state.data.workouts.find(w=>w.id===id);
   if (!workout) { toast('This workout has no stored summary.'); return; }
-  const sets = state.data.sets.filter(s=>s.sessionId===id);
-  const groups = new Map();
-  for (const set of sets) {if(!groups.has(set.exercise)) groups.set(set.exercise,[]);groups.get(set.exercise).push(set);}
-  $('#dialog-content').innerHTML = `<div class="dialog-heading"><div><span class="eyebrow">WORKOUT DETAILS</span><h2 id="dialog-title">${escape(workout.name)}</h2><p>${date(workout.date,true)} ${workout.dateOnly?'· Date recorded; time not recorded':''}</p></div><button class="icon-button close-dialog" aria-label="Close workout details">${icon('close')}</button></div><div class="dialog-stats"><div><small>Exercises</small><strong>${groups.size}</strong></div><div><small>Sets</small><strong>${sets.length}</strong></div><div><small>Recorded duration</small><strong>${duration(workout.duration)}</strong></div><div><small>Average heart rate</small><strong>${present(workout.averageHR)?number(workout.averageHR)+' <small>bpm</small>':'—'}</strong></div></div>${workoutRecovery(workout.date)}<div class="dialog-exercises">${[...groups].map(([name,entries])=>`<section><div class="dialog-exercise-title"><h3>${exerciseLabel(name)}</h3><button class="text-link" data-view-exercise="${escape(name)}">View progress ${icon('arrow')}</button></div><div class="table-scroll"><table><thead><tr><th>Set</th><th>Load</th><th>Reps</th><th>Rest after</th><th>Source</th></tr></thead><tbody>${entries.sort((a,b)=>(a.number||0)-(b.number||0)).map(s=>`<tr><td>${number(s.number)}</td><td>${loadLabel(s.exercise,s.weight)}</td><td>${number(s.reps)}</td><td>${duration(s.rest)}</td><td>${badge(s.source)}</td></tr>${s.note?`<tr class="note-row"><td colspan="5">${escape(s.note)}</td></tr>`:''}`).join('')}</tbody></table></div></section>`).join('')||'<p>No exercise sets recorded for this workout.</p>'}</div><div class="dialog-footer"><span>Missing measurements are shown as —.</span><button class="button button-dark" data-export-session="${escape(id)}">${icon('download')} Excel</button><button class="button" data-edit-workout="${escape(id)}">Edit sets</button>${workout.url?`<a class="button button-dark" href="${escape(workout.url)}" target="_blank" rel="noreferrer">Open in Garmin ${icon('arrow')}</a>`:''}</div>`;
+  const sets = sessionRows(id);
+  const groups = [];
+  for(const set of sets){
+    if(groups.at(-1)?.[0]!==set.exercise)groups.push([set.exercise,[]]);
+    groups.at(-1)[1].push(set);
+  }
+  $('#dialog-content').innerHTML = `<div class="dialog-heading"><div><span class="eyebrow">WORKOUT DETAILS</span><h2 id="dialog-title">${escape(workout.name)}</h2><p>${date(workout.date,true)} ${workout.dateOnly?'· Date recorded; time not recorded':''}</p></div><button class="icon-button close-dialog" aria-label="Close workout details">${icon('close')}</button></div><div class="dialog-stats"><div><small>Exercises</small><strong>${new Set(sets.map(s=>s.exercise)).size}</strong></div><div><small>Sets</small><strong>${sets.length}</strong></div><div><small>Recorded duration</small><strong>${duration(workout.duration)}</strong></div><div><small>Average heart rate</small><strong>${present(workout.averageHR)?number(workout.averageHR)+' <small>bpm</small>':'—'}</strong></div></div>${workoutRecovery(workout.date)}<div class="dialog-exercises">${groups.map(([name,entries])=>`<section><div class="dialog-exercise-title"><h3>${exerciseLabel(name)}</h3>${name.trim().toLowerCase()==='unknown'?'<span class="muted">Identify in Edit sets</span>':`<button class="text-link" data-view-exercise="${escape(name)}">View progress ${icon('arrow')}</button>`}</div><div class="table-scroll"><table><thead><tr><th>Set</th><th>Load</th><th>Reps</th><th>Rest after</th><th>Source</th></tr></thead><tbody>${entries.map(s=>`<tr><td>${number(s.number)}</td><td>${loadLabel(s.exercise,s.weight)}</td><td>${number(s.reps)}</td><td>${duration(s.rest)}</td><td>${badge(s.source)}</td></tr>${s.note?`<tr class="note-row"><td colspan="5">${escape(s.note)}</td></tr>`:''}`).join('')}</tbody></table></div></section>`).join('')||'<p>No exercise sets recorded for this workout.</p>'}</div><div class="dialog-footer"><span>Missing measurements are shown as —.</span>${sets.length?`<button class="button button-dark" data-repeat-workout="${escape(id)}">Repeat workout</button>`:''}<button class="button" data-export-session="${escape(id)}">${icon('download')} Excel</button>${workout.editIssue?`<span class="feature-note">${escape(workout.editIssue)}</span>`:`<button class="button" data-edit-workout="${escape(id)}">Edit sets</button>`}${workout.url?`<a class="button button-dark" href="${escape(workout.url)}" target="_blank" rel="noreferrer">Open in Garmin ${icon('arrow')}</a>`:''}</div>`;
   if (!$('#workout-dialog').open) $('#workout-dialog').showModal();
 }
 async function downloadExcel(sessionId=null,full=false) {
@@ -1038,7 +1220,7 @@ async function downloadExcel(sessionId=null,full=false) {
   else {
     const selected=range();if(selected.from)params.set('from',selected.from);if(selected.to)params.set('to',selected.to);
     params.set('source',state.source);
-    if(state.page==='workouts'&&state.workoutSearch)params.set('search',state.workoutSearch);
+    if(state.page==='workouts'&&state.workoutSearch)params.set('search',state.workoutSearch.trim());
   }
   toast('Preparing your Excel workbook…');
   try {
@@ -1097,21 +1279,25 @@ async function load(silent = false, force = false) {
   }
 }
 function navigate(page) {
-  if(!pages[page])page='overview';
+  if(!Object.hasOwn(pages,page))page='overview';
+  if(page!==state.page){
+    for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
+  }
   state.page=page;render();
   if(page==='operations')loadOperationHistory();
   window.scrollTo({top:0,behavior:'auto'});
 }
 document.addEventListener('click',event=>{
+  const dateControl=event.target.closest('.date-disclosure > summary');
+  if(dateControl)state.dateControlsOpen=!dateControl.parentElement.open;
+  const exportOptions=document.querySelector('.export-options');
+  if(exportOptions?.open&&(!exportOptions.contains(event.target)||event.target.closest('[data-action]')))exportOptions.open=false;
   if(event.target.closest('.skip-link')){event.preventDefault();$('#main').focus();$('#main').scrollIntoView({block:'start'});return;}
   const reset=event.target.closest('[data-reset-settings]');
-  if(reset){const form=reset.closest('form');delete form.dataset.dirty;settingsDrafts.delete(form.id);load(true,true);}
+  if(reset){const form=reset.closest('form');delete form.dataset.dirty;settingsDrafts.delete(settingsDraftKey(form));load(true,true);}
 });
 document.addEventListener('input',event=>markSettingsDirty(event.target));
 document.addEventListener('change',event=>markSettingsDirty(event.target));
-document.addEventListener('click',event=>{
-  if(Date.now()<chartClickUntil){event.preventDefault();event.stopImmediatePropagation();}
-},true);
 document.addEventListener('click',event=>{
   const more=$('#more-navigation');
   if(more?.open&&(!event.target.closest('#more-navigation')||event.target.closest('#more-navigation a')))more.open=false;
@@ -1151,7 +1337,7 @@ document.addEventListener('click',event=>{
     return;
   }
   const explore=event.target.closest('[data-view-exercise]');
-  if(explore){state.selected=explore.dataset.viewExercise;state.search='';state.limit=24;$('#workout-dialog').close();location.hash='exercises';navigate('exercises');return;}
+  if(explore){state.selected=explore.dataset.viewExercise;state.muscleGroup='all';state.search='';state.limit=24;$('#workout-dialog').close();location.hash='exercises';navigate('exercises');return;}
   const exerciseVolume=event.target.closest('[data-exercise-volume]');
   if(exerciseVolume){
     state.exerciseVolumeMode=exerciseVolume.dataset.exerciseVolume;
@@ -1164,14 +1350,19 @@ document.addEventListener('click',event=>{
   if(nutritionDate){state.nutritionDate=nutritionDate.dataset.nutritionDay;state.foodDeleteId='';render();return;}
   const action=event.target.closest('[data-action]')?.dataset.action;
   if(action==='nutrition-today'){state.nutritionDate='';state.foodDeleteId='';render();return;}
-  if(action==='food-delete'){state.foodDeleteId=event.target.closest('[data-food-id]').dataset.foodId;render();return;}
+  if(action==='food-edit'||action==='food-delete'){reviewFood(event.target.closest('[data-food-id]').dataset.foodId,action==='food-edit'?'update':'delete');return;}
   if(action==='food-delete-cancel'){state.foodDeleteId='';render();return;}
   if(action==='food-delete-confirm'){
-    const identity=event.target.closest('[data-food-id]').dataset.foodId;
-    if(identity===state.foodDeleteId)deleteFood(identity);
+    deleteFood(event.target.closest('[data-food-id]'));
     return;
   }
   if(action==='retry')load();
+  if(action==='more-workouts'){
+    const previous=state.workoutLimit??24;state.workoutLimit=previous+24;
+    const view=filterData(state.data,range(),state.source);
+    $('#workout-list').innerHTML=workoutResults(matchingWorkouts(view),view.sets);
+    document.querySelectorAll('#workout-list [data-session]')[previous]?.focus();return;
+  }
   if(action==='more-sets'){state.limit+=24;render();}
   if(action==='more-recovery'){state.recoveryLimit+=14;render();}
   if(action==='all-sets'){state.limit=24;state.search='';}
@@ -1180,7 +1371,7 @@ document.addEventListener('click',event=>{
   if(action==='export'){
     const recovery=state.page==='recovery';
     const filtered=filterData(state.data,range(),state.source);
-    const workoutIds=new Set(filtered.workouts.filter(w=>w.name.toLowerCase().includes(state.workoutSearch.toLowerCase())).map(w=>w.id));
+    const workoutIds=new Set(filtered.workouts.filter(w=>w.name.toLowerCase().includes(state.workoutSearch.trim().toLowerCase())).map(w=>w.id));
     const rows=recovery?recoveryRows():filtered.sets.filter(s=>state.page!=='workouts'||workoutIds.has(s.sessionId));
     if(!rows.length){toast('No records to export in this range.');return;}
     const csv=recovery?csvForRecovery(rows):csvForSets(rows);
@@ -1200,10 +1391,10 @@ document.addEventListener('change',event=>{
 document.addEventListener('input',event=>{
   if(event.target.id==='exercise-search'){state.search=event.target.value;refreshExerciseLibrary();}
   if(event.target.id==='workout-search'){
-    state.workoutSearch=event.target.value;
-    const view=current();const rows=[...view.workouts].sort((a,b)=>b.date.localeCompare(a.date)||b.time.localeCompare(a.time)).filter(w=>w.name.toLowerCase().includes(state.workoutSearch.toLowerCase()));
+    state.workoutSearch=event.target.value;state.workoutLimit=24;
+    const view=filterData(state.data,range(),state.source),rows=matchingWorkouts(view);
     $('#workout-count').textContent=`${rows.length} matching workouts · ${view.workouts.length} in date range`;
-    $('#workout-list').innerHTML=rows.map(w=>workoutCard(w,view.sets.filter(s=>s.sessionId===w.id))).join('')||'<div class="empty-panel">No matching workouts.</div>';
+    $('#workout-list').innerHTML=workoutResults(rows,view.sets);
   }
 });
 $('#refresh').addEventListener('click',()=>load());
@@ -1237,11 +1428,14 @@ document.addEventListener('click',async event=>{
         state.garminFull=await garminRequest({operation:'details',workoutId:target.dataset.fullGarmin});state.garminFullCatalog=null;state.garminFullCatalog=fullExerciseCodes();showFullEditor();
       }else{
         $('#editor-content .form-error').textContent='';
-        await garminRequest({operation:'apply',previewId:target.dataset.applyGarmin});
-        $('#editor-dialog').close();toast('Garmin workout updated and verified.');
+        const saved=await garminRequest({operation:'apply',previewId:target.dataset.applyGarmin});
+        const item=state.garminWorkouts?.find(row=>String(row.id)===String(saved.workoutId));
+        if(item&&saved.name){item.name=saved.name;item.planType=saved.planType;}
+        if(target.isConnected)$('#editor-dialog').close();
+        render();toast('Garmin workout updated and verified.');
       }
     }catch(error){
-      if(target.dataset.applyGarmin){$('#editor-content .form-error').textContent=error.message;}
+      if(target.dataset.applyGarmin&&target.isConnected){$('#editor-content .form-error').textContent=error.message;}
       else errorToast(error);
     }finally{target.disabled=false;if(target.dataset.action==='load-garmin')target.textContent='Refresh workouts';}
     return;
@@ -1281,8 +1475,8 @@ document.addEventListener('click',async event=>{
   if(target.dataset.planType){state.planType=target.dataset.planType;render();return;}
   if(target.dataset.themeChoice){const id=window.FormTheme.apply(target.dataset.themeChoice);render();document.querySelector(`[data-theme-choice="${id}"]`).focus({preventScroll:true});toast('Color theme saved.');return;}
   if(target.matches('.close-editor')){if(!state.workoutSaving&&!state.operationSaving)$('#editor-dialog').close();return;}
-  if(target.dataset.range){state.zoomHistory=[];state.range=target.dataset.range;state.limit=24;render();return;}
-  if(target.dataset.matchExercise){state.selected=target.dataset.matchExercise;state.metric='matched';state.search='';location.hash='exercises';navigate('exercises');return;}
+  if(target.dataset.range){if(target.dataset.range==='custom'&&state.range!=='custom'){const active=range();state.from=active.from||(state.data.runs||[]).map(r=>r.date).sort()[0]||today();state.to=active.to||today();}state.zoomHistory=[];state.range=target.dataset.range;state.limit=24;render();return;}
+  if(target.dataset.matchExercise){state.selected=target.dataset.matchExercise;state.muscleGroup='all';state.metric='matched';state.search='';location.hash='exercises';navigate('exercises');return;}
   if(target.hasAttribute('data-volume-reset')){
     markSettingsDirty(target);
     const row=target.closest('[data-volume-exercise]'),rule=exerciseVolumeRule(target.dataset.volumeReset);
@@ -1294,13 +1488,14 @@ document.addEventListener('click',async event=>{
   if(target.dataset.volumeMetric){state.volumeMetric=target.dataset.volumeMetric;if(state.volumeMetric==='estimatedMax')state.volumeMode='exercise';render();return;}
   if(target.dataset.volumeGroup){const move=target.classList.contains('volume-mini');state.volumeGroup[state.volumeMode]=target.dataset.volumeGroup;state.volumeWeek='';render();if(move)document.querySelector('.volume-history-panel')?.scrollIntoView({behavior:'smooth',block:'start'});return;}
   if(target.dataset.action==='more-volume-cards'){state.volumeCards+=12;render();return;}
+  if(target.dataset.repeatWorkout){$('#workout-dialog').close();showWorkoutEditor(null,target.dataset.repeatWorkout);return;}
   if(target.dataset.editWorkout){$('#workout-dialog').close();showWorkoutEditor(target.dataset.editWorkout);return;}
   if(target.dataset.editGoal){showGoalEditor(target.dataset.editGoal);return;}
   if(target.dataset.archiveGoal||target.dataset.restoreGoal||target.dataset.undoEdit){
     target.disabled=true;
     try{
-      if(target.dataset.archiveGoal)await saveAction({action:'goal_archive',id:target.dataset.archiveGoal});
-      if(target.dataset.restoreGoal){const g=state.data.archivedGoals.find(g=>g.id===target.dataset.restoreGoal);await saveAction({action:'goal_save',goal:g});}
+      if(target.dataset.archiveGoal)await saveAction({action:'goal_archive',metadataRevision:state.data.metadataRevision,id:target.dataset.archiveGoal});
+      if(target.dataset.restoreGoal){const g=state.data.archivedGoals.find(g=>g.id===target.dataset.restoreGoal);await saveAction({action:'goal_save',metadataRevision:state.data.metadataRevision,goal:g});}
       if(target.dataset.undoEdit)await saveAction({action:'undo_workout',id:target.dataset.undoEdit});
       toast(target.dataset.undoEdit?'Edit undone. Original records restored.':'Goal updated.');
     }catch(error){errorToast(error);target.disabled=false;}
@@ -1310,7 +1505,10 @@ document.addEventListener('click',async event=>{
     const index=Number(target.dataset.removeDraft??target.dataset.copyDraft);
     if(target.dataset.removeDraft!==undefined){if(state.draft.sets.length===1){toast('Keep at least one set.');return;}state.draft.sets.splice(index,1);}
     else{const row=state.draft.sets[index];state.draft.sets.splice(index+1,0,{exercise:row.exercise,weight:row.weight,reps:row.reps,note:row.note});}
-    $('#draft-rows').innerHTML=draftRows();persistDraft();return;
+    $('#draft-rows').innerHTML=draftRows();persistDraft();
+    const nextIndex=target.dataset.copyDraft!==undefined?index+1:Math.min(index,state.draft.sets.length-1);
+    document.querySelector(`[data-row="${nextIndex}"][data-field="reps"]`)?.focus();
+    return;
   }
   if(target.hasAttribute('data-remove-equipment')){
     markSettingsDirty(target);
@@ -1338,17 +1536,24 @@ document.addEventListener('click',async event=>{
   }
   if(action==='add-equipment'){
     markSettingsDirty(target);
-    const id=crypto.randomUUID();
+    const id=requestIdentity();
     $('#equipment-rows').insertAdjacentHTML('beforeend',equipmentRow(id));
     for(const select of document.querySelectorAll('[data-equipment-exercise]'))select.add(new Option('New profile',id));
     $('#equipment-rows').lastElementChild.querySelector('input').focus();return;
   }
-  if(action==='discard-draft'){removeStoredDraft(state.draft.sessionId);state.draft=null;$('#editor-dialog').close();render();return;}
+  if(action==='discard-draft'){
+    if(storedDrafts()[state.draft.sessionId||'new']&&!target.dataset.confirmed){
+      target.dataset.confirmed='true';target.textContent='Confirm discard';
+      $('#draft-status').textContent='Discard these unsaved changes? Close the editor to keep the draft.';
+      return;
+    }
+    removeStoredDraft(state.draft.sessionId);state.draft=null;$('#editor-dialog').close();render();return;
+  }
   if(action==='new-workout')showWorkoutEditor();
   if(action==='new-goal')showGoalEditor();
   if(action==='more-volume'){state.volumeLimit+=100;render();}
   if(action==='swap-compare'){[state.compareLeft,state.compareRight]=[state.compareRight,state.compareLeft];render();}
-  if(action==='add-draft-set'){state.draft.sets.push({exercise:state.draft.sets.at(-1)?.exercise||(state.selected==='all'?'':state.selected),weight:null,reps:null,note:''});$('#draft-rows').innerHTML=draftRows();persistDraft();}
+  if(action==='add-draft-set'){state.draft.sets.push({exercise:state.draft.sets.at(-1)?.exercise||(state.selected==='all'?'':state.selected),weight:null,reps:null,note:''});$('#draft-rows').innerHTML=draftRows();persistDraft();document.querySelector(`[data-row="${state.draft.sets.length-1}"][data-field="exercise"]`)?.focus();}
   if(action==='apply-range'){
     const from=$('#from-date').value,to=$('#to-date').value;
     if(!from||!to||from>to||to>today()){$('#range-error').textContent='Choose a start and end date, in order, no later than today.';return;}
@@ -1384,7 +1589,7 @@ document.addEventListener('change',event=>{
   if(element.id==='recovery-threshold'){state.recoveryThreshold=Math.max(0,Math.min(24,Number(element.value)||0));render();}
   if(element.id==='compare-left'){state.compareLeft=element.value;render();}
   if(element.id==='compare-right'){state.compareRight=element.value;render();}
-  if(element.id==='goal-mode'){$('#goal-form input[name="weight"]').disabled=element.value==='reps';}
+  if(element.id==='goal-mode'){const weight=$('#goal-form input[name="weight"]');weight.disabled=element.value==='reps';weight.required=!weight.disabled;}
 });
 document.addEventListener('input',event=>{
   const input=event.target;
@@ -1442,28 +1647,33 @@ document.addEventListener('submit',async event=>{
     if(form.id==='goal-form'){
       const values=Object.fromEntries(new FormData(form));
       if(form.dataset.id)values.id=form.dataset.id;
-      await saveAction({action:'goal_save',goal:values});$('#editor-dialog').close();toast('Goal saved.');
+      await saveAction({action:'goal_save',metadataRevision:form.dataset.revision,goal:values});if(form.isConnected)$('#editor-dialog').close();toast('Goal saved.');
     }
     if(form.id==='workout-form'){
       const draft=state.draft;
       if(!draft.pending){
         Object.assign(draft,Object.fromEntries(new FormData(form)));
-        draft.pending={action:'workout_save',requestId:draft.requestId,sessionId:draft.sessionId,revision:draft.revision,expectedMetadata:draft.expectedMetadata,name:draft.name,date:draft.date,durationMinutes:draft.durationMinutes,sets:structuredClone(draft.sets)};
+        draft.pending={action:'workout_save',requestId:draft.requestId,sessionId:draft.sessionId,revision:draft.revision,expectedMetadata:draft.expectedMetadata,name:draft.name,date:draft.date,durationMinutes:draft.durationMinutes,sets:draft.sets.map(({previous,...row})=>structuredClone(row))};
       }
       persistDraft();state.workoutSaving=true;form.querySelector('fieldset').disabled=true;form.querySelector('[data-action="discard-draft"]').disabled=true;
       try {
         await saveAction(draft.pending);
-        removeStoredDraft(draft.sessionId);state.draft=null;$('#editor-dialog').close();toast('Workout saved to your training database.');
+        removeStoredDraft(draft.sessionId);if(state.draft===draft)state.draft=null;if(form.isConnected)$('#editor-dialog').close();toast('Workout saved to your training database.');
       } catch(failure) {
-        if([400,401,403,409].includes(failure.status)){delete draft.pending;draft.requestId=crypto.randomUUID();button.textContent='Save workout';form.querySelector('fieldset').disabled=false;form.querySelector('[data-action="discard-draft"]').disabled=false;}
+        if([400,401,403,409].includes(failure.status)){delete draft.pending;draft.requestId=requestIdentity();button.textContent='Save workout';form.querySelector('fieldset').disabled=false;form.querySelector('[data-action="discard-draft"]').disabled=false;}
         else {button.textContent='Retry save';failure.message+=' Your draft is retained. Retry uses the same save identity to prevent duplicates.';}
+        if(failure.status===409)failure.message+=' Your draft is retained. Review the latest saved workout before re-entering a conflicting change.';
         persistDraft();throw failure;
       } finally {state.workoutSaving=false;}
     }
     if(form.id==='progression-form'){
       const mappings={...(state.data.progressionRules||{})};
       for(const row of form.querySelectorAll('[data-progression-name]')){
-        const rule={};for(const input of row.querySelectorAll('[data-rule]'))rule[input.dataset.rule]=Number(input.value);
+        const rule={};const inputs=[...row.querySelectorAll('[data-rule]')];
+        if(inputs.every(input=>input.value===input.defaultValue))continue;
+        for(const input of inputs)rule[input.dataset.rule]=Number(input.value);
+        const step=inputs.find(input=>input.dataset.rule==='weightStep');
+        if(step.value===step.defaultValue)rule.weightStep=mappings[row.dataset.progressionName]?.weightStep??null;
         if(rule.repMin>=rule.repMax)throw new Error('Each lower rep target must be below its rep ceiling.');
         mappings[row.dataset.progressionName]=rule;
       }
@@ -1472,14 +1682,23 @@ document.addEventListener('submit',async event=>{
     if(form.id==='volume-form'){
       const exercises={...(state.data.volumeSettings?.exercises||{})};
       for(const row of form.querySelectorAll('[data-volume-exercise]')){
-        exercises[row.dataset.volumeExercise]={multiplier:Number(row.querySelector('[data-factor="multiplier"]').value),bodyweight:Number(row.querySelector('[data-factor="bodyweight"]').value),loadCopies:Number(row.querySelector('[data-factor="loadCopies"]').value),assistance:row.querySelector('[data-factor="assistance"]').value==='true',reviewed:row.querySelector('[data-factor="reviewed"]')?.checked||false};
+        const name=row.dataset.volumeExercise,defaults=exerciseVolumeRule(name);
+        const values={multiplier:Number(row.querySelector('[data-factor="multiplier"]').value),bodyweight:Number(row.querySelector('[data-factor="bodyweight"]').value),loadCopies:Number(row.querySelector('[data-factor="loadCopies"]').value),assistance:row.querySelector('[data-factor="assistance"]').value==='true',reviewed:row.querySelector('[data-factor="reviewed"]')?.checked||false};
+        if(Object.entries(values).every(([key,value])=>value===(defaults[key]??false)))delete exercises[name];
+        else exercises[name]=values;
       }
       const weight=form.elements.bodyWeightKg.value;
       await saveAction({action:'volume_save',metadataRevision:form.dataset.revision,settings:{bodyWeightKg:weight===''?null:Number(weight),exercises}},form);
       toast('Volume factors saved. Weekly history recalculated.');
     }
     if(form.id==='muscle-form'){
-      const mappings={...(state.data.muscleOverrides||{})};for(const input of form.querySelectorAll('[data-muscle]'))mappings[input.dataset.muscle]=input.value;
+      const mappings={...(state.data.muscleOverrides||{})};
+      for(const input of form.querySelectorAll('[data-muscle]')){
+        const name=input.dataset.muscle,defaultGroup=DEFAULT_MUSCLES[name]||'Unassigned';
+        if(input.value===(mappings[name]||defaultGroup))continue;
+        if(input.value===defaultGroup)delete mappings[name];
+        else mappings[name]=input.value;
+      }
       await saveAction({action:'muscle_save',metadataRevision:form.dataset.revision,mappings},form);toast('Primary muscle groups saved.');
     }
   }catch(e){error.textContent=e.message+(e.status===409&&form.matches(settingsFormSelector)?' Your input is retained. Discard these changes to load the latest settings before reapplying your edits.':'');button.disabled=false;}
@@ -1491,13 +1710,19 @@ $('#editor-dialog').addEventListener('close',()=>{if(state.page==='logging'&&sta
 
 window.addEventListener('storage',event=>{if(event.key===window.FormTheme.key&&state.data)render();});
 
-state.page=pages[location.hash.slice(1)]?location.hash.slice(1):'overview';nav();
+installRunning({render:()=>{if(state.page==='running')render();},updateSummary:(id,summary,stamp)=>{
+  const run=state.data?.runs?.find(row=>row.id===id);
+  if(run&&(!run.detailsSyncedAt||run.detailsSyncedAt<=stamp))Object.assign(run,summary,{detailsSyncedAt:stamp});
+}});
+state.page=Object.hasOwn(pages,location.hash.slice(1))?location.hash.slice(1):'overview';nav();
 if(state.page==='operations'){render();loadOperationHistory();}
 load(true);
 setInterval(()=>load(true),300000);
 
 document.addEventListener('keydown',event=>{
   if(event.key==='Escape'){
+    const exports=document.querySelector('.export-options[open]');
+    if(exports){exports.open=false;exports.querySelector('summary').focus();}
     const more=$('#more-navigation');
     if(more?.open){more.open=false;more.querySelector('summary').focus();}
   }
@@ -1526,3 +1751,31 @@ document.addEventListener('click',event=>{
     render();document.querySelector(day?`[data-calendar-day="${day.dataset.calendarDay}"]`:shift?`[data-calendar-shift="${shift.dataset.calendarShift}"]`:'[data-calendar-today]')?.focus();
   }
 });
+
+installTimeBudget(() => state.data);
+
+// Only overflowing tables need a keyboard stop. Recalculate on rotation, route
+// changes and dialog updates, including content loaded after the initial render.
+let tableFocusFrame=0;
+function updateTableFocus(){
+  if(tableFocusFrame)return;
+  tableFocusFrame=requestAnimationFrame(()=>{
+    tableFocusFrame=0;
+    for(const wrapper of document.querySelectorAll('.table-scroll')){
+      if(wrapper.clientWidth&&wrapper.scrollWidth>wrapper.clientWidth+1){
+        wrapper.tabIndex=0;
+        wrapper.setAttribute('role','region');
+        const title=wrapper.closest('section,form,dialog')?.querySelector('h2,h3')?.textContent.trim()||'Table';
+        wrapper.setAttribute('aria-label',title+' · scroll horizontally');
+      }else{
+        wrapper.removeAttribute('tabindex');
+        wrapper.removeAttribute('role');
+        wrapper.removeAttribute('aria-label');
+      }
+    }
+  });
+}
+const tableObserver=new MutationObserver(updateTableFocus);
+for(const root of document.querySelectorAll('#main,dialog'))tableObserver.observe(root,{childList:true,subtree:true});
+window.addEventListener('resize',updateTableFocus);
+updateTableFocus();

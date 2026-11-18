@@ -22,6 +22,16 @@ from reptrace.storage.state import GROUPS as ALLOWED_MUSCLES
 
 
 class CatalogTests(unittest.TestCase):
+    def test_new_sets_only_inherit_unambiguous_recorded_categories(self):
+        from reptrace.training.catalog import recorded_exercise_mappings
+        rows = [
+            {"Exercise": "Custom press", "ExerciseCategory": "BENCH_PRESS", "last": "PRESS"},
+            {"Exercise": "Row", "ExerciseCategory": "ROW", "last": "ROW"},
+            {"Exercise": "Custom press", "ExerciseCategory": "SHOULDER_PRESS", "last": "PRESS"},
+        ]
+        self.assertEqual(recorded_exercise_mappings(rows + rows), {"Row": ("ROW", "ROW")})
+        self.assertEqual(recorded_exercise_mappings(reversed(rows)), {"Row": ("ROW", "ROW")})
+
     def test_catalog_references_known_groups_and_complete_profiles(self):
         self.assertEqual(CATALOG["schemaVersion"], 1)
         self.assertEqual(len(MUSCLE_GROUPS), len(set(MUSCLE_GROUPS)))

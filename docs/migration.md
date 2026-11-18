@@ -65,6 +65,8 @@ database. For a container, mount both the TSV and review profile read-only and p
 their container paths. Existing imported records and registry markers do not change.
 Without a profile, extra values are rejected rather than silently corrected.
 
+A write first checks every source session for ambiguous matches and archives original exercise records. An interrupted replacement leaves a pending marker. Rerun the import with the **same TSV, time zone and review profile** to resume it. Inspect the dry run first if the source file or destination may have changed. The dashboard excludes an interrupted session from analysis until completion. A conflicting file version or destination needs explicit reconciliation. Older completed registry entries may lack a review-profile fingerprint.
+
 ## Internal package organization
 
 CLI names and storage locations are unchanged by the package refactor. Custom

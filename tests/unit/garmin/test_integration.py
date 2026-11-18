@@ -6,10 +6,10 @@ import unittest
 from unittest.mock import Mock
 import uuid
 from zoneinfo import ZoneInfo
-from reptrace.garmin.integration import GarminIntegration
-from reptrace.garmin.creation import Creation, build_session
+from reptrace.garmin.integration import GarminIntegration, exercise_mapping
+from reptrace.garmin.creation import Creation, build_session, matches
 from reptrace.garmin.operations import OperationJournal
-from reptrace.garmin.workouts import GarminAdapter
+from reptrace.garmin.workouts import GarminAdapter, saved_workout_matches
 from reptrace.storage.state import WebState, Conflict, plan_workout, snapshot_rows
 
 
@@ -81,6 +81,31 @@ def session(name="Synthetic A"):
     }
 
 
+def creation_readback(payload):
+    """Synthetic response with the defaults Garmin adds to a new template."""
+    actual = dict(copy.deepcopy(payload), workoutId=42)
+    actual["sportType"]["displayOrder"] = 3
+    for segment in actual["workoutSegments"]:
+        segment["sportType"]["displayOrder"] = 3
+        for key in ("description", "avgTrainingSpeed", "estimateType", "estimatedDistanceInMeters", "estimatedDistanceUnit", "estimatedDurationInSecs", "poolLength", "poolLengthUnit"):
+            segment[key] = None
+        def fill(steps):
+            for step in steps:
+                if step["type"] == "RepeatGroupDTO":
+                    step.update(endCondition={"conditionTypeId":7, "conditionTypeKey":"iterations", "displayOrder":7, "displayable":False}, endConditionValue=float(step["numberOfIterations"]), skipLastRestStep=None)
+                    fill(step["workoutSteps"])
+                else:
+                    step["endCondition"]["displayable"] = True
+                    for key in ("category", "exerciseName", "description", "targetType", "weightUnit", "weightValue"):
+                        step.setdefault(key, None)
+                    step["equipmentType"] = {"equipmentTypeId":0, "equipmentTypeKey":None, "displayOrder":0}
+                step["stepId"] = 99
+                step["endConditionCompare"] = None
+                step["preferredEndConditionUnit"] = None
+        fill(segment["workoutSteps"])
+    return actual
+
+
 class IntegrationTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -130,6 +155,37 @@ class IntegrationTests(unittest.TestCase):
         self.adapter.update_activity_sets.assert_called_once()
         self.state.apply.assert_called_once()
         self.assertFalse(self.service.journal.unresolved("123"))
+
+    def test_garmin_connect_squat_code_missing_from_fit_catalog(self):
+        self.assertEqual(
+            exercise_mapping("SQUAT", "OVERHEAD_BARBELL_SQUAT"),
+            ("SQUAT", "OVERHEAD_BARBELL_SQUAT"),
+        )
+        with self.assertRaises(ValueError):
+            exercise_mapping("BENCH_PRESS", "OVERHEAD_BARBELL_SQUAT")
+
+    def test_correction_updates_all_duplicate_garmin_candidates(self):
+        candidates = self.remote["exerciseSets"][2]["exercises"]
+        candidates.append(dict(candidates[0], probability=75))
+        change = {
+            "setId": "123:2",
+            "category": "LEG_CURL",
+            "exerciseCode": "WEIGHTED_LEG_CURL",
+        }
+        preview = self.preview([change])
+        proposed = preview["proposed"]["exerciseSets"][2]
+        self.assertEqual(
+            proposed["exercises"],
+            [
+                {"category": "LEG_CURL", "name": "WEIGHTED_LEG_CURL", "probability": p}
+                for p in (100, 75)
+            ],
+        )
+        self.assertEqual(proposed["repetitionCount"], 8)
+        self.assertEqual(proposed["weight"], 20000)
+        candidates[1]["name"] = "BARBELL_BENCH_PRESS"
+        with self.assertRaisesRegex(ValueError, "explicit mapping review"):
+            self.preview([change])
 
     def test_unknown_zero_pounds_and_assistance(self):
         op = self.preview(
@@ -304,6 +360,142 @@ class IntegrationTests(unittest.TestCase):
 
 
 class CreationTests(unittest.TestCase):
+    def test_creation_readback_accepts_defaults_but_rejects_changed_prescriptions(self):
+        expected, _ = build_session(session())
+        actual = creation_readback(expected)
+        before = copy.deepcopy(actual)
+        self.assertTrue(matches(expected, actual))
+        self.assertEqual(actual, before)
+        for target, key, value in (
+            ("repeat", "numberOfIterations", 4),
+            ("repeat", "endConditionValue", 4),
+            ("repeat", "skipLastRestStep", True),
+            ("repeat", "smartRepeat", True),
+            ("exercise", "exerciseName", "BARBELL_BENCH_PRESS"),
+            ("exercise", "description", "Different exercise"),
+            ("exercise", "weightValue", 0),
+            ("exercise", "endConditionValue", 12),
+            ("exercise", "stepOrder", 44),
+            ("rest", "endConditionValue", 60),
+            ("rest", "targetType", {"workoutTargetTypeId": 1}),
+            ("segment", "estimatedDurationInSecs", 600),
+            ("sport", "sportTypeId", 1),
+        ):
+            with self.subTest(target=target, key=key):
+                changed = copy.deepcopy(actual)
+                segment = changed["workoutSegments"][0]
+                group = segment["workoutSteps"][0]
+                obj = {"repeat":group, "exercise":group["workoutSteps"][0], "rest":group["workoutSteps"][1], "segment":segment, "sport":changed["sportType"]}[target]
+                obj[key] = value
+                self.assertFalse(matches(expected, changed))
+
+    def test_template_edit_readback_accepts_omitted_optional_fields(self):
+        expected, _ = build_session(session())
+        expected["workoutId"] = 42
+        group = expected["workoutSegments"][0]["workoutSteps"][0]
+        group.pop("smartRepeat")
+        group["workoutSteps"][1].pop("endConditionValue")
+        for step in group["workoutSteps"]:
+            for key in ("targetType", "weightUnit", "weightValue", "description"):
+                step.pop(key, None)
+        actual = creation_readback(expected)
+        actual_group = actual["workoutSegments"][0]["workoutSteps"][0]
+        actual_group["smartRepeat"] = False
+        actual_group["workoutSteps"][1]["endConditionValue"] = None
+        self.assertTrue(saved_workout_matches(expected, actual))
+        actual_group["smartRepeat"] = True
+        self.assertFalse(saved_workout_matches(expected, actual))
+
+    def test_reconcile_existing_normalized_workouts_never_recreates_them(self):
+        op = self.preview([session(), session("Synthetic B")])
+        op.update(status="partial", selection=[0, 1])
+        for index, item in enumerate(op["items"], start=1):
+            item.update(creation="unresolved", beforeIds=[])
+            self.library[index] = dict(creation_readback(item["payload"]), workoutId=index)
+        self.creation.journal.save(op)
+        result = self.creation.apply(self.creation.journal.get(op["id"]), [0, 1])
+        self.assertEqual(result["status"], "done")
+        self.assertEqual([i["workoutId"] for i in result["items"]], [1, 2])
+        self.adapter.create.assert_not_called()
+        self.assertEqual(self.adapter.deliver.call_count, 2)
+        self.creation.apply(self.creation.journal.get(op["id"]), [0, 1])
+        self.assertEqual(self.adapter.deliver.call_count, 2)
+
+    def test_adapter_decodes_http_responses_for_durable_journal(self):
+        from requests import Response
+
+        adapter = object.__new__(GarminAdapter)
+        adapter.client = Mock()
+        response = Response()
+        response.status_code = 200
+        response._content = b'{"workoutId":42}'
+        adapter.client.garth.post.return_value = response
+        self.assertEqual(adapter.create({"workoutName":"Synthetic"}), {"workoutId":42})
+        response._content = b'[{"messageId":9}]'
+        self.assertEqual(json.loads(json.dumps(adapter.deliver(42, 7, "Synthetic"))), [{"messageId":9}])
+        response.status_code = 204
+        response._content = b''
+        self.assertIsNone(adapter.deliver(42, 7, "Synthetic"))
+
+    def test_new_custom_exercise_preserves_name_through_create_readback_and_retry(self):
+        routine = {
+            "name": "Travel circuit — completely new",
+            "steps": [
+                {
+                    "kind": "repeat",
+                    "count": 2,
+                    "steps": [
+                        {
+                            "kind": "exercise",
+                            "name": "My cable press variation",
+                            "category": "BENCH_PRESS",
+                            "exerciseCode": "",
+                            "notes": "Single handle, standing",
+                            "reps": 12,
+                            "load": None,
+                            "restSeconds": 45,
+                        }
+                    ],
+                }
+            ],
+        }
+        op = self.preview([routine])
+        self.adapter.create.assert_not_called()
+        self.assertIn("My cable press variation", op["preview"])
+        self.assertIn("no load target", op["preview"])
+        result = self.creation.apply(op, None)
+        self.assertEqual(result["status"], "done")
+        step = result["items"][0]["readback"]["workoutSegments"][0]["workoutSteps"][0][
+            "workoutSteps"
+        ][0]
+        self.assertEqual(step["exerciseName"], "")
+        self.assertEqual(
+            step["description"], "My cable press variation · Single handle, standing"
+        )
+        self.assertIsNone(step["weightValue"])
+        self.creation.apply(result, None)
+        self.adapter.create.assert_called_once()
+        self.adapter.deliver.assert_called_once()
+
+    def test_invalid_new_session_and_custom_name_are_rejected(self):
+        for routine in (
+            [],
+            {"name": "New", "steps": [None]},
+            {
+                "name": "New",
+                "steps": [
+                    {
+                        "kind": "exercise",
+                        "category": "CURL",
+                        "exerciseCode": "",
+                        "name": " ",
+                    }
+                ],
+            },
+        ):
+            with self.subTest(routine=routine), self.assertRaises(ValueError):
+                build_session(routine)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

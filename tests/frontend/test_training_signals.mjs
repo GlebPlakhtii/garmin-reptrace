@@ -9,7 +9,7 @@ function render(training,recovery=[]){
   const context={...model,document:{querySelector:()=>({})},window:{},setTimeout,clearTimeout};
   vm.createContext(context);
   vm.runInContext(source.slice(source.indexOf('\n')+1,source.indexOf("document.addEventListener('click'"))+
-    '\nstate.data={timezone:"Europe/Kyiv",training:signals,recovery:daily};state.range="all";this.html=trainingSignals();',
+    '\ntoday=()=>"2026-10-23";state.data={timezone:"Europe/Kyiv",training:signals,recovery:daily};state.range="all";this.html=trainingSignals();',
     Object.assign(context,{signals:training,daily:recovery}));
   return context.html;
 }

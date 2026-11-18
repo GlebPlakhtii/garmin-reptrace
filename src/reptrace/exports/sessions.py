@@ -72,7 +72,7 @@ def select_sessions(
     sets = [
         r
         for r in data.get("sets", [])
-        if (include_unknown or r["exercise"].strip().casefold() != "unknown")
+        if (session_id or include_unknown or r["exercise"].strip().casefold() != "unknown")
         and within(r["date"])
         and (source == "all" or r["source"] == source)
     ]
@@ -386,6 +386,10 @@ def export_sessions(
         + " · Exported "
         + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     )
+    if data.get("unlinkedStrengthRows"):
+        context += f" · {data['unlinkedStrengthRows']} unlinked strength rows excluded from session totals"
+    if data.get("pendingImports"):
+        context += f" · {data['pendingImports']} interrupted workout imports excluded from session totals"
     output = BytesIO()
     with (
         ZipFile(TEMPLATE.with_name("all-data.xlsx") if full else TEMPLATE) as template,

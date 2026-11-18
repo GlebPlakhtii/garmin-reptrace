@@ -5,9 +5,9 @@ import vm from 'node:vm';
 import * as model from '../../src/reptrace/web/static/model.mjs';
 
 const source=fs.readFileSync(new URL('../../src/reptrace/web/static/app.js',import.meta.url),'utf8');
-function app(){
+function app(localStorage){
   const nodes={'#exercise-list':{innerHTML:'',scrollTop:0},'.exercise-detail':{innerHTML:'',querySelectorAll:()=>[]}};
-  const context={...model,document:{querySelector:selector=>nodes[selector]||{},querySelectorAll:()=>[]},window:{},setTimeout,clearTimeout};
+  const context={...model,localStorage,document:{querySelector:selector=>nodes[selector]||{},querySelectorAll:()=>[]},window:{},setTimeout,clearTimeout};
   vm.createContext(context);
   vm.runInContext(source.slice(source.indexOf('\n')+1,source.indexOf("document.addEventListener('click'"))+`
     today=()=> '2026-10-24';
@@ -194,7 +194,8 @@ test('recorded exercise volume works without bodyweight; adjusted mode explains 
  const a=app();a.state.page='exercises';a.state.selected='Squat';
  a.state.data.sets=[{id:'s',sessionId:'a',date:'2026-10-20',time:'2026-10-20T10:00:00Z',exercise:'Squat',weight:5,reps:12,volume:60,source:'manual'}];
  const before=JSON.stringify(a.state.data);
- assert.equal(a.state.exerciseVolumeMode,'recorded');
+ assert.equal(a.state.exerciseVolumeMode,'adjusted');
+ a.state.exerciseVolumeMode='recorded';
  assert.equal(a.current().selected.volume,60);
  a.state.metric='volume';
  let html=a.progressPanel(a.current().selected);
@@ -210,6 +211,22 @@ test('recorded exercise volume works without bodyweight; adjusted mode explains 
  assert.equal(JSON.stringify(a.state.data),before);
  a.state.data.volumeSettings={bodyWeightKg:50};
  assert.equal(a.current().selected.volume,675); // (5 + 0.8×50) × 12 × 1.25
+});
+
+test('exercise library defaults to adjusted volume and preserves explicit browser choices',()=>{
+ for(const stored of [null,'invalid','adjusted','recorded']){
+  const a=app({getItem:key=>key==='reptrace.exerciseVolumeMode'?stored:null});
+  a.state.page='exercises';a.state.selected='Squat';a.state.metric='volume';
+  a.state.data.sets=[{sessionId:'a',date:'2026-10-20',exercise:'Squat',weight:5,reps:12,source:'manual'}];
+  a.state.data.volumeSettings={bodyWeightKg:50};
+  const recorded=stored==='recorded',view=a.current();
+  assert.equal(a.state.exerciseVolumeMode,recorded?'recorded':'adjusted');
+  assert.equal(view.selected.volume,recorded?60:675); // (5 + 0.8 × 50) × 12 × 1.25
+  assert.match(a.progressPanel(view.selected),recorded?/Recorded load × reps/:/Adjusted volume/);
+  assert.match(a.setsTable(view.selected),recorded?/volume-cell">60</:/volume-cell">675</);
+ }
+ assert.equal(app().state.exerciseVolumeMode,'adjusted');
+ assert.equal(app({getItem(){throw new Error('Storage unavailable');}}).state.exerciseVolumeMode,'adjusted');
 });
 
 test('recorded mode preserves zero and missing values and does not count assistance as resistance',()=>{

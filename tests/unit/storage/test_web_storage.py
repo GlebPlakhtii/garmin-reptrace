@@ -84,6 +84,19 @@ class StorageTests(unittest.TestCase):
             next(p for p in points if p["measurement"] == "ActivitySummary"), before[0]
         )
 
+    def test_edit_keeps_set_mapping_when_another_machine_shares_its_label(self):
+        before = fixture()
+        before[1]["tags"].update(User_ID="synthetic", ExerciseCategory="ORIGINAL")
+        before[1]["fields"]["exerciseCode"] = "ORIGINAL_CODE"
+        body = request(revision=revision(snapshot_rows(before)), sets=[
+            {"id":"123:1", "exercise":"Barbell Bench Press", "weight":82.5, "reps":6}])
+        _, points, _ = plan_workout(body, before, CATALOG, "Test", ZONE, body["requestId"])
+        row = snapshot_rows(points)[0]
+        self.assertEqual((row["ExerciseCategory"],row["exerciseCode"],row["User_ID"]),
+                         ("ORIGINAL","ORIGINAL_CODE","synthetic"))
+        self.assertAlmostEqual(row["estimated1RMKg"],99)
+        self.assertEqual(row["volumeKg"],495)
+
     def test_moving_overnight_workout_preserves_day_offsets_and_set_times(self):
         before = fixture()
         before[0]["time"] = "2026-10-01T20:50:00Z"
@@ -154,6 +167,21 @@ class StorageTests(unittest.TestCase):
         self.assertTrue(
             any(p["measurement"] == "StrengthManualSession" for p in points)
         )
+
+    def test_missing_or_duplicate_source_keys_cannot_replace_a_workout(self):
+        from copy import deepcopy
+        for missing in (True, False):
+            before = fixture()
+            extra = deepcopy(before[1])
+            extra["tags"]["Exercise"] = "Other exercise"
+            if missing:
+                extra["tags"].pop("SetIndex")
+            before.append(extra)
+            body = request(revision=revision(snapshot_rows(before)), sets=[
+                {"id": "123:1", "exercise": "Barbell Bench Press", "weight": 40, "reps": 6}
+            ])
+            with self.assertRaisesRegex(Conflict, "set identifiers"):
+                plan_workout(body, before, CATALOG, "Test", ZONE, body["requestId"])
 
     def test_stale_and_repeated_set_edits_are_rejected(self):
         before = fixture()

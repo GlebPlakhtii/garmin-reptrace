@@ -9,6 +9,8 @@ from reptrace.storage.state import numeric, text, Conflict
 def build_session(session):
     from reptrace.garmin.integration import exercise_mapping
 
+    if not isinstance(session, dict):
+        raise ValueError("Each session must be an object")
     sport = {"sportTypeId": 5, "sportTypeKey": "strength_training", "displayOrder": 5}
     lines = [text(session.get("name"), "Session name", 120)]
 
@@ -17,6 +19,8 @@ def build_session(session):
             raise ValueError("Invalid program step list")
         result = []
         for item in items:
+            if not isinstance(item, dict):
+                raise ValueError("Each program step must be an object")
             if item.get("kind") == "repeat":
                 count = numeric(item.get("count"), "Repeat count", True, 100)
                 if count is None or count < 2:
@@ -44,6 +48,13 @@ def build_session(session):
             notes = item.get("notes") or ""
             if not isinstance(notes, str) or len(notes) > 500:
                 raise ValueError("Invalid exercise notes")
+            if item.get("name") is not None:
+                name = text(item["name"], "Exercise name", 120)
+                notes = name + (" · " + notes if notes else "")
+                if len(notes) > 500:
+                    raise ValueError(
+                        "Exercise name and notes must total at most 500 characters"
+                    )
             if not code and not notes.strip():
                 raise ValueError("Generic exercises need explicit notes")
             reps = numeric(item.get("reps"), "Reps", True, 500)

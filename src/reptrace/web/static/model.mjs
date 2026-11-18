@@ -16,7 +16,8 @@ export function filterData(data, range, source = 'all') {
   const sets = data.sets.filter(row => within(row) && (source === 'all' || row.source === source));
   const ids = new Set(sets.map(row => row.sessionId));
   const workouts = data.workouts.filter(row => within(row) && (source === 'all' || ids.has(row.id)));
-  return { sets, workouts };
+  const runs = source === 'manual' ? [] : (data.runs || []).filter(within);
+  return { sets, workouts, runs };
 }
 export function exerciseSummaries(sets) {
   const groups = new Map();
@@ -332,7 +333,7 @@ export const DEFAULT_VOLUME_PROFILES = Object.fromEntries(Object.entries(exercis
 export function exerciseVolumeRule(name, settings = {}) {
   const normalize=value=>value.toLowerCase().replace(/[-_]/g,' ').replace(/\s+/g,' ').trim();
   const key=Object.keys(DEFAULT_VOLUME_PROFILES).find(key=>normalize(key)===normalize(name));
-  const profile=DEFAULT_VOLUME_PROFILES[key]||{multiplier:1,bodyweight:0,loadCopies:1,assistance:false,confidence:'unidentified',rationale:'No reviewed movement profile. Check the exercise identity, load convention, and factors before enabling this custom estimate.'};
+  const profile=DEFAULT_VOLUME_PROFILES[key]||{multiplier:1,bodyweight:0,loadCopies:1,assistance:isAssistedExercise(name),confidence:'unidentified',rationale:'No reviewed movement profile. Check the exercise identity, load convention, and factors before enabling this custom estimate.'};
   const override=settings.exercises?.[name]||{};
   return {...profile,...override,custom:Object.keys(override).length>0};
 }

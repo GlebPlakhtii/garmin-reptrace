@@ -113,6 +113,24 @@ class GarminWorkoutTests(unittest.TestCase):
             )
             self.assertEqual(client.get.call_count, 3)
 
+    def test_target_only_revision_for_a_custom_named_template_without_a_plan(self):
+        remote = fixture()
+        remote["workoutName"] = "Travel session"
+        adapter = Mock()
+        adapter.get.side_effect = lambda _: deepcopy(remote)
+        adapter.update.side_effect = lambda _, value: remote.update(deepcopy(value))
+        with tempfile.TemporaryDirectory() as directory:
+            service = GarminWorkouts(Path(directory) / "test.sqlite", lambda: adapter)
+            first = service.call({"operation":"preview", "workoutId":123}, [])
+            self.assertFalse(first["canSuggest"])
+            preview = service.call({"operation":"revise","previewId":first["previewId"],
+                                    "manualTargets":[{"index":0,"weight":82.5,"reps":7}]}, [])
+            self.assertEqual(remote["workoutSegments"][0]["workoutSteps"][0]["workoutSteps"][0]["weightValue"],80)
+            saved = service.call({"operation":"apply","previewId":preview["previewId"]}, [])
+            self.assertEqual(saved["name"],"Travel session")
+            self.assertIsNone(saved["planType"])
+            self.assertEqual(remote["workoutSegments"][0]["workoutSteps"][0]["workoutSteps"][0]["weightValue"],82.5)
+
     def test_matching_set_after_repeat_is_merged_automatically(self):
         before = fixture()
         group = before["workoutSegments"][0]["workoutSteps"][0]
@@ -406,6 +424,53 @@ class GarminWorkoutTests(unittest.TestCase):
             after["workoutSegments"][0]["workoutSteps"][0]["skipLastRestStep"]
         )
         self.assertEqual(len(executed_steps(after)), len(executed_steps(before)))
+
+    def test_regrouped_preview_preserves_different_original_targets(self):
+        before = fixture(3)
+        items = unroll_group(before["workoutSegments"][0]["workoutSteps"][0])
+        before["workoutSegments"][0]["workoutSteps"] = items
+        items[2].update(weightValue=75, endConditionValue=9)
+        original = deepcopy(before)
+        targets = plan([{"weight": 85, "reps": 10}] * 3)
+        with tempfile.TemporaryDirectory() as directory:
+            client = Mock()
+            client.get.return_value = before
+            service = GarminWorkouts(Path(directory) / "updates.sqlite", lambda: client)
+            preview = service.call(
+                {"operation": "preview", "workoutId": 123}, [targets]
+            )
+            for result in (preview, service.call(
+                {"operation": "revise", "previewId": preview["previewId"],
+                 "useSuggestions": True, "manualTargets": []}, [targets]
+            )):
+                self.assertEqual(
+                    [(c["field"], c["before"], c["after"], c["sets"])
+                     for c in result["changes"]],
+                    [("weight", 80, 85, 2), ("reps", 8, 10, 2),
+                     ("weight", 75, 85, 1), ("reps", 9, 10, 1)],
+                )
+            client.update.assert_not_called()
+        after, _, _ = make_update(before, targets)
+        self.assertEqual([row["sets"] for row in editable_steps(after)], [3])
+        self.assertEqual(
+            [s["stepType"] for _, s, _ in executed_steps(after)],
+            [s["stepType"] for _, s, _ in executed_steps(before)],
+        )
+        self.assertEqual(before, original)
+
+    def test_manual_targets_can_merge_different_original_targets(self):
+        before = fixture(3)
+        items = unroll_group(before["workoutSegments"][0]["workoutSteps"][0])
+        before["workoutSegments"][0]["workoutSteps"] = items
+        items[2]["weightValue"] = 75
+        after, changes = manual_update(
+            before, before, [{"index": 1, "weight": 80}]
+        )
+        self.assertEqual([row["sets"] for row in editable_steps(after)], [3])
+        self.assertEqual(
+            [(c["field"], c["before"], c["after"], c["sets"]) for c in changes],
+            [("weight", 75, 80, 1)],
+        )
 
     def test_structure_only_preview_can_be_reviewed_without_target_changes(self):
         before = fixture(3)

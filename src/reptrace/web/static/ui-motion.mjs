@@ -13,6 +13,7 @@ const surfaces = [
 const controls = 'button[aria-pressed], button[aria-selected], .topnav-link, .segmented button, .topnav-more-toggle';
 const transientClasses = /\b(?:active|selected|visible|is-today|spinning)\b/g;
 const ease = 'cubic-bezier(.22, .8, .3, 1)';
+const metricValues = '.stat > strong, .exercise-metrics > div > strong';
 
 export function surfaceSignature(markup, keepSelection = false) {
   // Ignore animation bookkeeping, keyboard focus and control selection. Those
@@ -69,17 +70,32 @@ export function installUiMotion(document, window) {
     const records = roots.flatMap(root => [...root.querySelectorAll(surfaces)]
       .filter(node => !node.matches('.volume-mini, [data-motion-chart]') && !node.querySelector(surfaces))
       .map(node => ({node, key: keyFor(node), visible: visible(node.getBoundingClientRect()),
+        month: node.dataset?.motionMonth,
+        metrics: [...node.querySelectorAll(metricValues)].map(value => ({node: value, signature: surfaceSignature(value.innerHTML)})),
         signature: surfaceSignature(node.innerHTML, node.matches('.map-visuals'))})));
     const freshDialogs = [...document.querySelectorAll('dialog[open]')].filter(node => !openDialogs.has(node));
     const animatedParents = [...freshDialogs, ...openings.filter(node => node.open)];
     const changed = changedSurfaces(previous, records, {routeChanged, suppressed: initial || typing || disabled()});
     // Animate only leaf regions, never their parents as well. Offscreen tables
     // and live search results are recorded without starting decorative work.
-    changed.filter(item => !animatedParents.some(parent => parent.contains(item.node))).slice(0, 10).forEach(({node}, index) => {
+    changed.filter(item => !animatedParents.some(parent => parent.contains(item.node))).slice(0, 10).forEach(({node, key, month, metrics}, index) => {
+      const before = previous.get(key);
+      const focused = node.contains(document.activeElement);
       if (routeChanged) {
-        const distance = node.contains(document.activeElement) ? 0 : 14;
+        const distance = focused ? 0 : 14;
         play(node, [{opacity: .15, translate: `0 ${distance}px`}, {opacity: 1, translate: '0 0'}],
           {delay: Math.min(index * 24, 96)});
+      } else if (month && before?.month && month !== before.month && !focused) {
+        // ISO months sort chronologically, including across year boundaries.
+        const distance = month > before.month ? 18 : -18;
+        play(node, [{opacity: .65, translate: `${distance}px 0`}, {opacity: 1, translate: '0 0'}], {duration: 280});
+      } else if (metrics.length && before?.metrics.length && !focused) {
+        // Show the actual new value throughout; never count through invented measurements.
+        metrics.filter((value, i) => value.signature !== before.metrics[i]?.signature).forEach(({node: value}, i) => {
+          if (visible(value.getBoundingClientRect())) play(value,
+            [{opacity: .65, translate: '0 5px'}, {opacity: 1, translate: '0 0'}],
+            {duration: 260, delay: Math.min(i * 30, 90)});
+        });
       } else {
         // Keep in-page updates anchored and readable; reserve entrances for navigation.
         play(node, [{opacity: .92}, {opacity: 1}], {duration: 160});
@@ -113,7 +129,9 @@ export function installUiMotion(document, window) {
 
     for (const dialog of document.querySelectorAll('dialog')) {
       if (dialog.open) {
-        if (!initial && !openDialogs.has(dialog)) play(dialog, [{opacity: .15, translate: '0 16px'}, {opacity: 1, translate: '0 0'}]);
+        if (!initial && !openDialogs.has(dialog)) play(dialog,
+          [{opacity: .15, translate: '0 12px', scale: '.98'}, {opacity: 1, translate: '0 0', scale: '1'}],
+          {duration: 300});
         openDialogs.add(dialog);
       } else {
         openDialogs.delete(dialog);

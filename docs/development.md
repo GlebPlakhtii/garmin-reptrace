@@ -33,6 +33,7 @@ INFLUXDB_HOST=127.0.0.1 INFLUXDB_PORT=18087 \
 ```
 
 The integration script creates and drops its own uniquely named test database.
+The same disposable Influx host and port support `tests/integration/coherent_snapshots.py`, `tests/integration/garmin_coordination.py` and `tests/integration/manual_import.py`. The last script checks conflicting date matches, an interrupted reviewed import, partial-session filtering, repeatable recovery and the archived originals.
 It covers real persistence behavior; mocked tests do not replace that check.
 Remove only the disposable container when finished:
 
@@ -72,10 +73,28 @@ and must be invoked with an explicitly configured development database.
 
 ## Telegram dashboard calculations
 
+The complete workout PNG is rendered by `reports/workout_sheet.py`, using the
+canonical adjusted-volume adapter. It includes unidentified exercises and every
+recorded set. Synthetic tests cover complete long sheets, missing values,
+owner-only delivery and PNG fallback.
+
+Legacy workout widgets use `telegram/workout_widget.html` and a private snapshot store.
+The HTML must stay under Telegram's 32768-byte raw and 4096-byte zlib limits;
+each private state page must stay under 1024 UTF-8 bytes. Synthetic tests cover
+authorization, pagination, missing values, restart recovery, client errors and
+query handling while the coach worker is busy. Browser previews can check layout
+with a stub `TelegramWidget`, but do not validate Telegram's native renderer or
+prove live Bot API delivery.
+
 Install Node.js 22+ when running the bot outside Docker. Its dashboard tools
 execute the existing browser calculation module through a fixed stdin/stdout
 adapter; there is still no frontend build step. Docker includes the Node binary.
 See [Telegram tools](telegram-tools.md) for supported reads, previews and exports.
+
+After-workout reports also require Node.js 22+: `reports/volume.mjs` calls the
+same adjusted-volume calculation as the dashboard. Session totals, historical
+comparisons, charts and AI facts use those estimates with the saved volume
+settings and dated bodyweight. Weekly and monthly reports retain recorded volume.
 
 Run the separate-process Garmin/collector checks with an isolated development
 InfluxDB and temporary state paths:
@@ -109,3 +128,44 @@ including with Influx unavailable. Status reads are local and work in the demo;
 the demo still rejects all continuation actions. The demo also isolates its
 operation journal and shared-lock path. Test continuation only with synthetic
 adapters and temporary storage unless a live external action is explicitly authorized.
+
+
+## Running detail and Telegram reports
+
+`training/running_metrics.json` owns summary labels, units and conversions for the
+web and Telegram reports. `training/running.py` normalizes the read-only Garmin
+activity/detail/split/zone responses. Descriptor factors are metadata, not extra
+multipliers on returned sample values. Native running cadence and double cadence
+are distinguished; null chart samples remain gaps. Synthetic tests cover these
+units, treadmill calibration, paired pace totals, comparisons and safe CSV output.
+
+`garmin/running.py` stores only normalized display data in `RUNNING_STATE_PATH`
+(default: `running.sqlite` beside `WEB_STATE_PATH`). This is a disposable imported
+cache, not an activity editor. SQLite transactions preserve previous detail on
+interruption; partial and failed Garmin refreshes retain prior usable sections.
+Tests use temporary cache files and synthetic clients, including restart, retry,
+rollback, origin/membership validation and owner-only Telegram delivery. The demo
+uses `web/running_demo.py` and makes no Garmin requests, even when importing detail.
+
+Check the Running overview, detailed charts, alternate metric/axis controls,
+keyboard sample slider, type/search/date filters, comparison, empty states and
+failed-detail refresh with prior charts retained. Run links are real only for
+numeric Garmin IDs. Telegram `/run` reports are standalone HTML; test attachment
+retry without resending the already-delivered summary. Do not send live test
+messages to the owner unless asked.
+
+## Shared exercise loads
+
+The four named next-session plans share each repeated exercise's load proposal
+from its latest performance across the routines. Rep targets and set counts stay
+specific to each routine; moving to a heavier shared load caps reps at that
+routine's lower target. Uniform loads can span different set counts. Unequal set
+counts with multiple top/back-off loads require review instead of guessing the
+mapping. Explicit single-session adaptations keep their original loads.
+
+Verified one-time manual loads take precedence across routines and expire after
+the next matching exercise performance in any named routine. Single-type Telegram
+requests resolve all four plans before selecting the requested result. Tests cover
+both source selection and this single-request behavior. Progression increments
+and equipment restrictions remain exercise-wide; sharing does not invent smaller
+increments or bypass the existing automatic-increase limit.

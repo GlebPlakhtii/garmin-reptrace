@@ -8,6 +8,74 @@ from reptrace.coaching.assistant import TrainingTools, INTEGRATION_NAMES
 
 
 class ReviewedIntegrationTests(unittest.TestCase):
+    def test_creation_with_empty_history_has_its_own_save_preview(self):
+        with tempfile.TemporaryDirectory() as directory:
+            api = Mock()
+            api.call.return_value = {"message_id": 1}
+            garmin = Mock(
+                return_value={
+                    "id": "new-operation",
+                    "preview": "New travel workout",
+                    "items": [{"payload": {"workoutName": "Travel circuit"}}],
+                }
+            )
+            bot = Bot(api, Mock(), Path(directory) / "state.json", "42", garmin=garmin)
+            tools = TrainingTools(
+                {}, bot.state, bot.save, request_id="create-turn", garmin=garmin
+            )
+            args = {
+                "sessions_json": json.dumps(
+                    [
+                        {
+                            "name": "Travel circuit",
+                            "steps": [
+                                {
+                                    "kind": "exercise",
+                                    "category": "CURL",
+                                    "exerciseCode": "",
+                                    "name": "Custom cable curl",
+                                    "reps": 12,
+                                    "load": None,
+                                }
+                            ],
+                        }
+                    ]
+                ),
+                "device_id": None,
+            }
+            draft = tools.call("propose_garmin_workout_creation", args)
+            first = garmin.call_args.args[0]
+            self.assertEqual(first["operation"], "creation_preview")
+            self.assertNotIn("workoutId", first)
+            self.assertEqual(
+                first["sessions"][0]["steps"][0]["name"], "Custom cable curl"
+            )
+            tools.call("propose_garmin_workout_creation", args)
+            self.assertEqual(first["requestId"], garmin.call_args.args[0]["requestId"])
+            bot.send_edit_preview(draft["draftId"])
+            buttons = api.call.call_args.args[1]["reply_markup"]["inline_keyboard"]
+            self.assertEqual(buttons[0][0]["text"], "Save and send all")
+            garmin.return_value = {
+                "status": "done",
+                "selection": [0],
+                "items": [
+                    {
+                        "payload": {"workoutName": "Travel circuit"},
+                        "creation": "saved",
+                        "delivery": "requested",
+                    }
+                ],
+            }
+            bot.handle_edit("edit:save:" + draft["draftId"])
+            self.assertEqual(
+                garmin.call_args.args[0],
+                {
+                    "operation": "creation_apply",
+                    "requestId": "new-operation",
+                    "selection": None,
+                },
+            )
+
     def test_model_can_stage_but_not_apply_and_confirmation_retries_same_operation(
         self,
     ):

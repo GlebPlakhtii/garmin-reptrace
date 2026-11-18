@@ -9,15 +9,12 @@ from garminconnect import Garmin
 from influxdb import InfluxDBClient
 from influxdb_client_3 import InfluxDBClient3
 
+from reptrace.storage.coordination import collector_batch, protected_activity
 from reptrace.training.strength import (
     build_strength_points,
     has_manual_strength_details,
 )
 
-
-from reptrace.storage.coordination import strength_writer, protected_activity
-
-@strength_writer
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--start-date", type=date.fromisoformat)
@@ -109,11 +106,13 @@ def main():
         points = build_strength_points(
             activity, payload, workout.get("Device") or "Unknown", database
         )
-        if points:
-            write(points)
-        total += len(points)
+        # A local correction may finish while the remote request is in flight.
+        with collector_batch(points, client, version) as accepted:
+            if accepted:
+                write(accepted)
+            total += len(accepted)
         print(
-            f"{index + 1}/{len(workouts)}: {workout['activityName']} — {len(points)} set/exercise points",
+            f"{index + 1}/{len(workouts)}: {workout['activityName']} — {len(accepted)} set/exercise points",
             flush=True,
         )
         if index + 1 < len(workouts):

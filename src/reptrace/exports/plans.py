@@ -33,12 +33,28 @@ def fmt(value):
     return "—" if value is None else f"{value:g}"
 
 
-def load_label(exercise, value):
+def load_label(exercise, value, unit="kg"):
     return (
         "BW"
         if exercise.casefold() in ("pull up", "push up", "dip") and value == 0
-        else fmt(value) + " kg"
+        else fmt(value) + " " + unit
     )
+
+
+def target_count_label(target):
+    if "seconds" in target:
+        return fmt(target["seconds"]) + " sec"
+    if target.get("open"):
+        return "Open"
+    return fmt(target["reps"]) + " reps"
+
+
+def plan_caption(plan):
+    if plan.get("source") == "manual_override":
+        return plan["name"] + " · next-session suggestions with your one-time manual targets. Planned values, not completed sets."
+    if plan.get("source") == "garmin_template":
+        return plan["name"] + " · saved Garmin targets, including your edits. Planned values, not completed sets."
+    return f"{plan['name']} · complete workout · based on {plan['baselineDate'] or 'no recorded session'}. Automatic suggestions, not completed sets."
 
 
 def short_date(value):
@@ -86,6 +102,12 @@ def render_plan(plan, page=0):
     notes = [
         "Highlighted loads or reps are proposed changes. ADD WEIGHT resets reps to the lower target."
     ]
+    if plan.get("source"):
+        notes = [plan["notice"]]
+    if plan.get("retainedStructureDate"):
+        notes.append(
+            f"Fewer sets last time: retained the structure from {plan['retainedStructureDate']}. Missing sets are not completed results; affected exercises repeat earlier targets."
+        )
     if any(
         e["name"].casefold() in ("pull up", "push up", "dip")
         and any(s["weight"] == 0 for s in e["previous"])
@@ -125,7 +147,9 @@ def render_plan(plan, page=0):
     draw.rectangle((0, 0, 400, 5), fill=COLORS["blue"])
     draw.rectangle((400, 0, 800, 5), fill=COLORS["mint"])
     draw.rectangle((800, 0, 1200, 5), fill=COLORS["pink"])
-    draw.text((50, 30), "GARMIN REPTRACE  /  TRAINING PLAN", font=small, fill=COLORS["blue"])
+    draw.text(
+        (50, 30), "GARMIN REPTRACE  /  TRAINING PLAN", font=small, fill=COLORS["blue"]
+    )
     draw.text((46, 76), plan["name"], font=title, fill=COLORS["text"])
     draw.rounded_rectangle((900, 80, 1150, 125), radius=10, fill=COLORS["surface"])
     draw.text((923, 90), "NEXT SESSION", font=tiny, fill=COLORS["mint"])
@@ -158,13 +182,15 @@ def render_plan(plan, page=0):
             "mint",
         ),
     ]
+    if plan.get("source") == "garmin_template":
+        stats[2] = ("TARGET SOURCE", "Garmin", "mint")
     for i, (label, value, color) in enumerate(stats):
         x = 50 + i * 370
         draw.rounded_rectangle(
             (x, 218, x + 350, 300), radius=12, fill=COLORS["surface"]
         )
         draw.text((x + 18, 233), label, font=tiny, fill=COLORS["muted"])
-        draw.text((x + 268, 238), value, font=valuefont, fill=COLORS[color])
+        draw.text((x + 330 - draw.textlength(value, font=valuefont), 238), value, font=valuefont, fill=COLORS[color])
     draw.text((50, 327), "EXERCISE", font=tiny, fill=COLORS["muted"])
     draw.text((470, 327), "LAST RESULT", font=tiny, fill=COLORS["muted"])
     draw.text((820, 327), "NEXT TARGET", font=tiny, fill=COLORS["mint"])
@@ -174,6 +200,8 @@ def render_plan(plan, page=0):
         "progress": ("ADD 1 REP", "mint"),
         "repeat": ("REPEAT", "blue"),
         "review": ("REVIEW FIRST", "gold"),
+        "saved": ("SAVED GARMIN", "mint"),
+        "shared_load": ("SHARED LOAD", "blue"),
     }
     for i, (exercise, names, row_height) in enumerate(rows):
         draw.rectangle(
@@ -186,7 +214,11 @@ def render_plan(plan, page=0):
             draw.text((58, cy), line, font=namefont, fill=COLORS["text"])
             cy += 37
         label, color = status[exercise["status"]]
+        if exercise["status"] == "saved" and plan.get("source") == "manual_override":
+            label = "SAVED ONCE"
         draw.text((60, cy + 9), label, font=tiny, fill=COLORS[color])
+        if not exercise["previous"]:
+            draw.text((470, y + 18), "Not recorded", font=small, fill=COLORS["muted"])
         for j, previous in enumerate(exercise["previous"]):
             draw.text(
                 (470, y + 18 + j * 38),
@@ -196,7 +228,7 @@ def render_plan(plan, page=0):
             )
         for j, proposed in enumerate(exercise["proposed"]):
             cy = y + 18 + j * 38
-            load = load_label(exercise["name"], proposed["weight"])
+            load = load_label(exercise["name"], proposed["weight"], proposed.get("unit", "kg"))
             load_changed = (
                 j < len(exercise["previous"])
                 and proposed["weight"] != exercise["previous"][j]["weight"]
@@ -214,7 +246,7 @@ def render_plan(plan, page=0):
                 j < len(exercise["previous"])
                 and proposed["reps"] != exercise["previous"][j]["reps"]
             )
-            reps = fmt(proposed["reps"])
+            reps = (target_count_label(proposed) if "seconds" in proposed or proposed.get("open") else fmt(proposed["reps"]))
             face = font(27, True) if changed else body
             if changed:
                 draw.rounded_rectangle(
@@ -237,7 +269,7 @@ def render_plan(plan, page=0):
     y += 22
     draw.text(
         (50, y),
-        "PROPOSED TARGETS · Record actual results after training",
+        ("SAVED GARMIN TARGETS" if plan.get("source") == "garmin_template" else "PROPOSED TARGETS") + " · Record actual results after training",
         font=tiny,
         fill=COLORS["pink"],
     )

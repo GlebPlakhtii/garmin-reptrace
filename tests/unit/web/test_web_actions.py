@@ -11,6 +11,28 @@ from reptrace.web import server as web
 
 
 class ActionHandlerTests(unittest.TestCase):
+    def test_time_budget_preview_is_read_only_and_accepts_arbitrary_session(self):
+        from tests.unit.reports.test_training_reports import records
+
+        data = records()
+        data["workouts"][-1]["name"] = "Travel day"
+        with patch.object(web, "STORE") as store:
+            store.get.return_value = (data, None, None)
+            status, response = self.send(
+                json.dumps({"session_id": "c", "time_minutes": 35}),
+                path="/api/plan-preview",
+            )
+            self.assertEqual(status, 200)
+            self.assertEqual(response["name"], "Travel day · adapted")
+            self.assertTrue(response["adapted"])
+            self.state.apply.assert_not_called()
+            status, response = self.send(
+                json.dumps({"session_id": "c", "time_minutes": True}),
+                path="/api/plan-preview",
+            )
+            self.assertEqual(status, 400)
+            self.assertIn("10–180", response["error"])
+
     def setUp(self):
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -122,6 +144,16 @@ class ActionHandlerTests(unittest.TestCase):
                 200,
             )
             store.get.assert_not_called()
+
+    def test_next_sessions_reads_current_garmin_targets_with_fresh_history(self):
+        with patch.object(web, "GARMIN_WORKOUTS") as service, patch.object(web, "STORE") as store:
+            store.get.return_value = ({"nextSessions": [{"type": "lower2"}]}, b"", b"")
+            service.call.return_value = {"plans": [{"type": "lower2", "source": "garmin_template"}]}
+            status, result = self.send('{"operation":"next_sessions","planType":"lower2"}', path="/api/garmin-workouts")
+            self.assertEqual(status, 200)
+            self.assertEqual(result["plans"][0]["source"], "garmin_template")
+            store.get.assert_called_once_with(force=True)
+            service.call.assert_called_once_with({"operation": "next_sessions", "planType": "lower2"}, [{"type": "lower2"}])
 
     def test_database_endpoint_is_read_only_and_uses_same_origin_guard(self):
         with patch.object(web, "DatabaseReader") as reader:

@@ -37,6 +37,16 @@ class DashboardTests(unittest.TestCase):
         ]
         return sets, workouts, []
 
+    def test_incomplete_tags_keep_other_workouts_available_and_prevent_ambiguous_edits(self):
+        sets, workouts, sleep = self.records()
+        source = sets[0]
+        unlinked = {key: value for key, value in source.items() if key != "ActivityID"}
+        anonymous = {key: value for key, value in source.items() if key not in ("Exercise", "SetIndex")}
+        view = build_payload([source, unlinked, anonymous], workouts, sleep)
+        self.assertEqual(view["unlinkedStrengthRows"], 1)
+        self.assertEqual([row["exercise"] for row in view["sets"]], ["Pull Up", "Unknown"])
+        self.assertIn("set identifiers", view["workouts"][0]["editIssue"])
+
     def test_midnight_workout_keeps_all_sets_on_workout_date_without_changing_times(
         self,
     ):
@@ -90,6 +100,16 @@ class DashboardTests(unittest.TestCase):
             ["Rear Delt Fly", "Seated Rear Lateral Raise", "Reverse Pec Deck Fly"],
         )
 
+    def test_manual_estimates_do_not_depend_on_a_previous_garmin_mapping(self):
+        sets, workouts, sleep = self.records()
+        old = dict(sets[0], Exercise="Barbell Bench Press", ExerciseCategory="MANUAL",
+                   reps=6, weightKg=50)
+        rows = [old, dict(old, Exercise="Unknown machine", estimated1RMKg=999),
+                dict(old, reps=11), dict(old, reps=1)]
+        payload = build_payload(rows, workouts, sleep)
+        self.assertEqual([r["estimatedMax"] for r in payload["sets"]], [60, None, None, 50])
+        self.assertNotIn("estimated1RMKg",old)
+
     def test_zero_is_preserved_and_nonfinite_values_are_null(self):
         sets, workouts, sleep = self.records()
         sets[0].update(weightKg=0, reps=0, volumeKg=0, estimated1RMKg=float("nan"))
@@ -136,6 +156,21 @@ class DashboardTests(unittest.TestCase):
         store.get(force=True)
         self.assertEqual(factory.call_count, 2)
         self.assertEqual(client.close.call_count, 2)
+
+    def test_period_imports_reuse_membership_but_dashboard_reads_the_new_summary(self):
+        factory = Mock(return_value=(Mock(), lambda query: []))
+        store = DataStore(factory)
+        initial = store.get()
+        store.run_summaries_changed = True
+        for _ in range(5):
+            self.assertIs(store.get(membership_only=True), initial)
+        self.assertEqual(factory.call_count, 1)
+        self.assertIsNot(store.get(), initial)
+        self.assertEqual(factory.call_count, 2)
+        self.assertFalse(store.run_summaries_changed)
+        store.expires = 0
+        store.get(membership_only=True)
+        self.assertEqual(factory.call_count, 3)
 
     def test_database_failure_closes_client_without_caching_partial_data(self):
         client = Mock()
@@ -324,7 +359,8 @@ class DashboardTests(unittest.TestCase):
         workouts[0]["activityType"] = "strength_training"
         sources = {
             "StrengthSet": sets,
-            "ActivitySummary": workouts,
+            "ActivitySummary": workouts + [dict(workouts[0], ActivityID="987", activityType="trail_running", activityName="Export synthetic trail")],
+            "StrengthManualSource": [{"time": sets[0]["time"], "originalRecord": "synthetic reviewed source"}],
             "StrengthSetGarminArchive": [dict(sets[0], rawWeight="16")],
             "BodyComposition": [{"time": "2026-10-21T00:00:00Z", "weight": 72900}],
         }
@@ -355,6 +391,9 @@ class DashboardTests(unittest.TestCase):
         client.close.assert_called_once()
         with ZipFile(BytesIO(body)) as archive:
             self.assertIsNone(archive.testzip())
+            source_sheet = archive.read("xl/worksheets/sheet7.xml")
+            self.assertIn(b"synthetic reviewed source", source_sheet)
+            self.assertIn(b"Export synthetic trail", source_sheet)
 
 
 if __name__ == "__main__":

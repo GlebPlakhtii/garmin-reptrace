@@ -1,0 +1,14 @@
+.time-budget {padding:26px;margin:24px 0}
+.time-budget h2 {margin:0 0 10px}
+.time-budget-fields {display:flex;flex-wrap:wrap;gap:18px;margin:22px 0}
+.time-budget-fields label {display:grid;gap:8px;flex:1;min-width:160px}
+.time-budget-fields select,.time-budget-fields input {width:100%;min-height:44px}
+.time-budget-choice {display:flex;align-items:center;flex-wrap:wrap;gap:16px;padding:12px 0;border-bottom:1px solid var(--line,#ccd0d0)}
+.time-budget-choice strong {flex:1;min-width:200px}
+.time-budget-choice label {display:flex;align-items:center;gap:8px;min-height:44px}
+.time-budget-choice input {width:18px;height:18px}
+.time-budget-targets {display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin:20px 0}
+.time-budget-targets article {padding:16px;border:1px solid var(--line,#ccd0d0);border-radius:12px}
+.time-budget-targets h4 {margin:0}
+#time-budget-result {margin-top:24px;scroll-margin-top:30px}
+@media(max-width:600px){.time-budget{padding:18px}.time-budget-choice strong{flex-basis:100%}}

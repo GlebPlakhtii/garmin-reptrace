@@ -15,6 +15,23 @@ from tests.unit.reports.test_training_reports import records, workout, row
 
 
 class MonthlyTests(unittest.TestCase):
+    def test_assistance_record_respects_full_history_and_explicit_override(self):
+        name = "Assisted Dip"
+        data = records()
+        data["sets"] = [
+            row("a", "2026-08-01", 10, exercise=name),
+            row("b", "2026-09-01", 20, exercise=name),
+            row("c", "2026-10-20", 15, exercise=name),
+        ]
+        self.assertEqual(monthly_facts(data, "2026-11-02")["loadRecords"], [])
+        data["sets"].append(row("d", "2026-10-21", 0, exercise=name))
+        facts = monthly_facts(data, "2026-11-02")
+        self.assertEqual(facts["loadRecords"][0]["before"], 10)
+        self.assertIn("10 → 0 kg assistance", render_monthly_html(facts).decode())
+        data["volumeSettings"] = {"exercises": {name: {"assistance": False}}}
+        self.assertEqual(monthly_facts(data, "2026-11-02")["loadRecords"], [])
+
+
     def test_last_completed_month_and_year_boundary(self):
         facts = monthly_facts(records(), "2027-01-03")
         self.assertEqual((facts["from"], facts["to"]), ("2026-12-01", "2026-12-31"))

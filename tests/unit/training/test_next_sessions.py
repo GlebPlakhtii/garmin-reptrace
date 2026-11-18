@@ -42,6 +42,17 @@ def plan(d, day="2026-10-21"):
 
 
 class NextSessionTests(unittest.TestCase):
+    def test_last_performed_tracks_exercises_omitted_from_recent_sessions(self):
+        records = data()
+        records['workouts'] += [workout('c', '2026-10-22'), workout('d', '2026-10-24')]
+        records['sets'] += [row('c', name='Squat'), row('d', name='Squat')]
+        result = plan(records, '2026-10-25')
+        self.assertEqual(result['lastPerformed']['Barbell Bench Press'], {
+            'date': '2026-10-20', 'time': '2026-10-20T09:00:00Z',
+        })
+        self.assertEqual(result['lastPerformed']['Squat']['time'], '2026-10-24T09:00:00Z')
+        self.assertEqual(result['baselineTime'], '2026-10-24T09:00:00Z')
+
     def test_all_four_types_and_named_aliases_without_guessing_generic_workouts(self):
         self.assertEqual(workout_type("Leg Day 2"), "lower2")
         self.assertEqual(workout_type("lower 1"), "lower1")
@@ -133,14 +144,105 @@ class NextSessionTests(unittest.TestCase):
         self.assertEqual(len(p["exercises"]), 1)
         self.assertEqual(p["evidenceCount"], 2)
 
-    def test_old_exercises_are_reported_but_not_silently_added_to_latest_template(self):
+    def test_skipped_exercise_is_retained_without_fabricating_completed_sets(self):
         d = data()
         d["sets"].append(row("a", name="Curl"))
+        before = copy.deepcopy(d)
+        p = plan(d)
+        self.assertEqual(len(p["exercises"]), 2)
+        self.assertEqual(p["baselineId"], "b")
+        self.assertEqual(p["retainedStructureDate"], "2026-10-13")
+        self.assertEqual(p["omittedExercises"], [])
+        curl = p["exercises"][1]
+        self.assertEqual(curl["previous"], [])
+        self.assertEqual(curl["proposed"], [{"weight": 80, "reps": 5}])
+        self.assertEqual(curl["status"], "repeat")
+        self.assertIn("one-time omission", curl["reason"])
+        self.assertEqual(curl["history"][0]["sets"], [])
+        self.assertEqual(d, before)
+
+    def test_four_skipped_sets_restore_exercises_in_previous_order(self):
+        d = data()
+        d["sets"] += [
+            row("a", name=name, order=i, reps=12)
+            for name, i in [("Row", 0), ("Row", 1), ("Curl", 4), ("Curl", 5)]
+        ]
+        p = plan(d)
+        self.assertEqual(
+            [e["name"] for e in p["exercises"]], ["Row", "Barbell Bench Press", "Curl"]
+        )
+        self.assertEqual(sum(len(e["proposed"]) for e in p["exercises"]), 6)
+        self.assertEqual(sum(len(e["previous"]) for e in p["exercises"]), 2)
+        self.assertEqual(
+            [e["status"] for e in p["exercises"]], ["repeat", "progress", "repeat"]
+        )
+        self.assertEqual([s["weight"] for s in p["exercises"][0]["proposed"]], [80, 80])
+        image = Image.open(BytesIO(render_plan(p)))
+        self.assertEqual(image.width, 1200)
+
+    def test_partial_exercise_repeats_full_prior_targets_without_progression(self):
+        d = data()
+        d["sets"] = [
+            row("a", weight=80, reps=12),
+            row("a", weight=70, reps=12, order=2),
+            row("b", weight=85, reps=12),
+        ]
+        e = plan(d)["exercises"][0]
+        self.assertEqual(e["previous"], [{"weight": 85, "reps": 12}])
+        self.assertEqual(
+            e["proposed"], [{"weight": 80, "reps": 12}, {"weight": 70, "reps": 12}]
+        )
+        self.assertEqual(e["status"], "repeat")
+
+    def test_repeated_reduction_establishes_new_structure(self):
+        d = data()
+        d["sets"].append(row("a", name="Curl"))
+        d["workouts"].append(workout("c", "2026-10-21"))
+        d["sets"] += [row("c"), row("c", order=2)]
         p = plan(d)
         self.assertEqual(len(p["exercises"]), 1)
+        self.assertNotIn("retainedStructureDate", p)
         self.assertEqual(
             p["omittedExercises"], [{"name": "Curl", "lastDate": "2026-10-13"}]
         )
+
+    def test_substitutions_additions_long_gaps_and_explicit_templates_are_respected(
+        self,
+    ):
+        for case in ("substitution", "addition", "long_gap", "explicit"):
+            with self.subTest(case=case):
+                d = data()
+                d["sets"].append(row("a", name="Curl"))
+                if case == "substitution":
+                    d["sets"].append(row("b", name="Cable Curl"))
+                elif case == "addition":
+                    d["sets"].append(row("b", order=3))
+                elif case == "long_gap":
+                    d["workouts"][0]["date"] = "2026-08-01"
+                p = build_next_sessions(
+                    d, "2026-10-21", baseline_id="b" if case == "explicit" else None
+                )[0]
+                self.assertNotIn("Curl", [e["name"] for e in p["exercises"]])
+                self.assertNotIn("retainedStructureDate", p)
+
+    def test_restored_exercises_still_require_data_and_equipment_review(self):
+        for name, overrides in [
+            ("Curl", {"reps": None}),
+            ("Assisted Pull Up", {}),
+            ("Curl", {"weight": 0}),
+        ]:
+            with self.subTest(name=name, overrides=overrides):
+                d = data()
+                d["sets"].append(row("a", name=name, **overrides))
+                self.assertEqual(plan(d)["exercises"][-1]["status"], "review")
+        d = data()
+        d["sets"].append(row("a", name="Curl"))
+        self.assertEqual(plan(d, "2026-12-01")["exercises"][-1]["status"], "review")
+        d["equipment"] = {
+            "assignments": {"Curl": "rack"},
+            "profiles": {"rack": {"name": "Rack", "loads": [10, 20]}},
+        }
+        self.assertEqual(plan(d)["exercises"][-1]["status"], "review")
 
     def test_image_keeps_all_exercises_on_one_readable_png(self):
         d = data()

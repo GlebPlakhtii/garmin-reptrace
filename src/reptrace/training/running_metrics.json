@@ -1,0 +1,298 @@
+[
+  {
+    "key": "distanceKm",
+    "source": "distance",
+    "scale": 0.001,
+    "label": "Distance",
+    "unit": "km",
+    "digits": 2,
+    "group": "Overview"
+  },
+  {
+    "key": "timerSeconds",
+    "source": "duration",
+    "label": "Timer time",
+    "unit": "time",
+    "group": "Overview"
+  },
+  {
+    "key": "movingSeconds",
+    "source": "movingDuration",
+    "label": "Moving time",
+    "unit": "time",
+    "group": "Overview"
+  },
+  {
+    "key": "elapsedSeconds",
+    "source": "elapsedDuration",
+    "label": "Elapsed time",
+    "unit": "time",
+    "group": "Overview"
+  },
+  {
+    "key": "averagePace",
+    "label": "Garmin average pace",
+    "unit": "pace",
+    "group": "Overview"
+  },
+  {
+    "key": "movingPace",
+    "label": "Moving pace",
+    "unit": "pace",
+    "group": "Overview"
+  },
+  {
+    "key": "bestPace",
+    "label": "Best recorded pace",
+    "unit": "pace",
+    "group": "Overview"
+  },
+  {
+    "key": "averageHR",
+    "source": "averageHR",
+    "label": "Average heart rate",
+    "unit": "bpm",
+    "group": "Heart & energy"
+  },
+  {
+    "key": "maxHR",
+    "source": "maxHR",
+    "label": "Maximum heart rate",
+    "unit": "bpm",
+    "group": "Heart & energy"
+  },
+  {
+    "key": "minHR",
+    "source": "minHR",
+    "label": "Minimum heart rate",
+    "unit": "bpm",
+    "group": "Heart & energy"
+  },
+  {
+    "key": "calories",
+    "source": "calories",
+    "label": "Activity calories",
+    "unit": "kcal",
+    "group": "Heart & energy"
+  },
+  {
+    "key": "restingCalories",
+    "source": "bmrCalories",
+    "label": "Resting calories",
+    "unit": "kcal",
+    "group": "Heart & energy"
+  },
+  {
+    "key": "sweatLossMl",
+    "source": "waterEstimated",
+    "label": "Estimated sweat loss",
+    "unit": "ml",
+    "group": "Heart & energy"
+  },
+  {
+    "key": "bodyBatteryChange",
+    "source": "differenceBodyBattery",
+    "signed": true,
+    "label": "Body Battery change",
+    "unit": "points",
+    "group": "Heart & energy"
+  },
+  {
+    "key": "aerobicEffect",
+    "source": "trainingEffect",
+    "label": "Aerobic training effect",
+    "unit": "/5",
+    "digits": 1,
+    "group": "Training effect"
+  },
+  {
+    "key": "anaerobicEffect",
+    "source": "anaerobicTrainingEffect",
+    "label": "Anaerobic training effect",
+    "unit": "/5",
+    "digits": 1,
+    "group": "Training effect"
+  },
+  {
+    "key": "trainingLoad",
+    "source": "activityTrainingLoad",
+    "label": "Exercise load",
+    "unit": "",
+    "digits": 1,
+    "group": "Training effect"
+  },
+  {
+    "key": "moderateMinutes",
+    "source": "moderateIntensityMinutes",
+    "label": "Moderate intensity",
+    "unit": "min",
+    "group": "Training effect"
+  },
+  {
+    "key": "vigorousMinutes",
+    "source": "vigorousIntensityMinutes",
+    "label": "Vigorous intensity",
+    "unit": "min",
+    "group": "Training effect"
+  },
+  {
+    "key": "cadence",
+    "source": "averageRunCadence",
+    "label": "Average cadence",
+    "unit": "spm",
+    "group": "Running dynamics"
+  },
+  {
+    "key": "maxCadence",
+    "source": "maxRunCadence",
+    "label": "Maximum cadence",
+    "unit": "spm",
+    "group": "Running dynamics"
+  },
+  {
+    "key": "strideLengthM",
+    "source": "strideLength",
+    "scale": 0.01,
+    "label": "Stride length",
+    "unit": "m",
+    "digits": 2,
+    "group": "Running dynamics"
+  },
+  {
+    "key": "groundContactMs",
+    "source": "groundContactTime",
+    "label": "Ground contact time",
+    "unit": "ms",
+    "group": "Running dynamics"
+  },
+  {
+    "key": "verticalOscillationCm",
+    "source": "verticalOscillation",
+    "label": "Vertical oscillation",
+    "unit": "cm",
+    "digits": 1,
+    "group": "Running dynamics"
+  },
+  {
+    "key": "verticalRatio",
+    "source": "verticalRatio",
+    "label": "Vertical ratio",
+    "unit": "%",
+    "digits": 1,
+    "group": "Running dynamics"
+  },
+  {
+    "key": "groundContactBalance",
+    "source": "groundContactBalance",
+    "label": "Ground contact balance",
+    "unit": "% left",
+    "digits": 1,
+    "group": "Running dynamics"
+  },
+  {
+    "key": "steps",
+    "source": "steps",
+    "label": "Steps",
+    "unit": "",
+    "group": "Running dynamics"
+  },
+  {
+    "key": "averagePower",
+    "source": "averagePower",
+    "label": "Average power",
+    "unit": "W",
+    "group": "Power"
+  },
+  {
+    "key": "maxPower",
+    "source": "maxPower",
+    "label": "Maximum power",
+    "unit": "W",
+    "group": "Power"
+  },
+  {
+    "key": "normalizedPower",
+    "source": "normalizedPower",
+    "label": "Normalized power",
+    "unit": "W",
+    "group": "Power"
+  },
+  {
+    "key": "elevationGain",
+    "source": "elevationGain",
+    "label": "Ascent",
+    "unit": "m",
+    "group": "Elevation & environment"
+  },
+  {
+    "key": "elevationLoss",
+    "source": "elevationLoss",
+    "label": "Descent",
+    "unit": "m",
+    "group": "Elevation & environment"
+  },
+  {
+    "key": "minElevation",
+    "source": "minElevation",
+    "signed": true,
+    "label": "Minimum elevation",
+    "unit": "m",
+    "group": "Elevation & environment"
+  },
+  {
+    "key": "maxElevation",
+    "source": "maxElevation",
+    "signed": true,
+    "label": "Maximum elevation",
+    "unit": "m",
+    "group": "Elevation & environment"
+  },
+  {
+    "key": "averageTemperature",
+    "source": "averageTemperature",
+    "signed": true,
+    "label": "Average sensor temperature",
+    "unit": "\u00b0C",
+    "digits": 1,
+    "group": "Elevation & environment"
+  },
+  {
+    "key": "minTemperature",
+    "source": "minTemperature",
+    "signed": true,
+    "label": "Minimum sensor temperature",
+    "unit": "\u00b0C",
+    "digits": 1,
+    "group": "Elevation & environment"
+  },
+  {
+    "key": "maxTemperature",
+    "source": "maxTemperature",
+    "signed": true,
+    "label": "Maximum sensor temperature",
+    "unit": "\u00b0C",
+    "digits": 1,
+    "group": "Elevation & environment"
+  },
+  {
+    "key": "staminaStart",
+    "source": "beginPotentialStamina",
+    "label": "Starting potential stamina",
+    "unit": "%",
+    "group": "Stamina"
+  },
+  {
+    "key": "staminaEnd",
+    "source": "endPotentialStamina",
+    "label": "Ending potential stamina",
+    "unit": "%",
+    "group": "Stamina"
+  },
+  {
+    "key": "staminaMin",
+    "source": "minAvailableStamina",
+    "label": "Minimum available stamina",
+    "unit": "%",
+    "group": "Stamina"
+  }
+]

@@ -15,7 +15,7 @@ import time
 import uuid
 
 from reptrace.training.strength import EXERCISE_NAME_ALIASES
-from reptrace.training.planning import workout_type
+from reptrace.training.planning import workout_type, share_exercise_loads
 from reptrace.storage.state import Conflict
 
 
@@ -416,7 +416,10 @@ def field_changes(before, after):
         for field, key in [("weight", "weightValue"), ("reps", "endConditionValue")]:
             if original.get(key) == updated.get(key):
                 continue
-            group_key = (tuple(path), field)
+            # Regrouping can merge sets that started with different targets.
+            # Keep each before/after transition visible in the preview even
+            # when those sets now share the same physical Garmin step.
+            group_key = (tuple(path), field, original.get(key), updated.get(key))
             if group_key not in grouped:
                 grouped[group_key] = {
                     "exercise": exercise_name(updated),
@@ -427,10 +430,6 @@ def field_changes(before, after):
                     "stepOrder": updated.get("stepOrder"),
                     "path": path + [key],
                 }
-            elif grouped[group_key]["before"] != original.get(key) or grouped[
-                group_key
-            ]["after"] != updated.get(key):
-                raise RuntimeError("Repeat block contains inconsistent targets")
             grouped[group_key]["sets"] += 1
     return list(grouped.values())
 
@@ -684,8 +683,46 @@ def manual_update(before, base, targets):
     return after, changes
 
 
+def normalized_workout_content(value):
+    """Normalize only observed Garmin defaults, preserving execution semantics."""
+    value = deepcopy(value)
+
+    def sport(dto):
+        if isinstance(dto, dict) and dto.get("sportTypeId") == 5 and dto.get("sportTypeKey") == "strength_training":
+            dto.pop("displayOrder", None)
+
+    def steps(items):
+        for step in items:
+            for key in ("category", "exerciseName", "description", "targetType", "weightUnit", "weightValue", "skipLastRestStep", "endConditionValue"):
+                if step.get(key) is None:
+                    step.pop(key, None)
+            condition = step.get("endCondition")
+            if isinstance(condition, dict) and isinstance(condition.get("displayable"), bool):
+                condition.pop("displayable")
+            if step.get("type") == "RepeatGroupDTO":
+                if step.get("smartRepeat") is False:
+                    step.pop("smartRepeat")
+                # The server duplicates the repeat count in an iterations
+                # condition. Remove it only when both representations agree.
+                if condition == {"conditionTypeId": 7, "conditionTypeKey": "iterations", "displayOrder": 7} and step.get("endConditionValue") == step.get("numberOfIterations"):
+                    step.pop("endCondition")
+                    step.pop("endConditionValue")
+                steps(step.get("workoutSteps", []))
+
+    sport(value.get("sportType"))
+    for segment in value.get("workoutSegments", []):
+        sport(segment.get("sportType"))
+        for key in ("description", "avgTrainingSpeed", "estimateType", "estimatedDistanceInMeters", "estimatedDistanceUnit", "estimatedDurationInSecs", "poolLength", "poolLengthUnit"):
+            if segment.get(key) is None:
+                segment.pop(key, None)
+        steps(segment.get("workoutSteps", []))
+    return value
+
+
 def saved_workout_matches(expected, actual):
-    """Garmin renumbers step identifiers on PUT; verify all workout content."""
+    """Verify workout content after Garmin adds defaults and renumbers IDs."""
+    expected = normalized_workout_content(expected)
+    actual = normalized_workout_content(actual)
 
     def segments(value):
         result = deepcopy(value.get("workoutSegments"))
@@ -935,6 +972,7 @@ def garmin_exercise_catalog(query):
     return {
         "exercises": found[:60],
         "truncated": len(found) > 60,
+        "genericCategories": [key.removesuffix("_exercise_name").upper() for key in FIELD_TYPES if key.endswith("_exercise_name")],
         "note": "Captain's chair has no dedicated code in this catalogue. Use generic LEG_RAISE with a Captain's chair description; do not substitute hanging leg raises silently."
         if alias
         else "Generic category entries support a description when an exact exercise is unavailable.",
@@ -1072,6 +1110,82 @@ def append_exercise(
     }
 
 
+def target_groups(workout):
+    """Compare executed exercise targets independently of repeat-block layout."""
+    result = {}
+    for _, step, _ in executed_steps(workout):
+        if (step.get("stepType") or {}).get("stepTypeKey") == "rest":
+            continue
+        name = exercise_name(step) if step.get("exerciseName") else step.get("description") or exercise_name(step) or "Exercise"
+        result.setdefault(name, []).append({
+            "weight": step.get("weightValue"),
+            "unit": (step.get("weightUnit") or {}).get("unitKey"),
+            "condition": (step.get("endCondition") or {}).get("conditionTypeKey"),
+            "value": step.get("endConditionValue"),
+        })
+    return result
+
+
+def manually_changed_exercises(before, after):
+    old, new = target_groups(before), target_groups(after)
+    return [name for name in new if old.get(name) != new[name]]
+
+
+def saved_session_plan(plan, workout):
+    """Use the current template verbatim for targets, retaining history as context."""
+    result = deepcopy(plan)
+    result.update(
+        name=workout.get("workoutName") or plan["name"],
+        source="garmin_template",
+        workoutId=identity(workout["workoutId"]),
+        notice="Targets read from your saved Garmin workout. These are planned values, not completed sets or automatic progression suggestions.",
+        exercises=[],
+        executionOrder=[],
+    )
+    result.pop("retainedStructureDate", None)
+    history = {e["name"]: deepcopy(e.get("previous", [])) for e in plan["exercises"]}
+    groups = {}
+    for _, step, _ in executed_steps(workout):
+        if (step.get("stepType") or {}).get("stepTypeKey") == "rest":
+            continue
+        name = exercise_name(step)
+        if not step.get("exerciseName"):
+            name = step.get("description") or name or "Exercise"
+        condition = (step.get("endCondition") or {}).get("conditionTypeKey")
+        if condition not in ("reps", "time", "lap.button"):
+            raise ValueError("This Garmin workout has an unsupported target; view it in Garmin Connect.")
+        unit = (step.get("weightUnit") or {}).get("unitKey")
+        weight = step.get("weightValue")
+        if weight is not None and unit not in ("kilogram", "pound"):
+            raise ValueError("This Garmin workout has an unsupported load unit; view it in Garmin Connect.")
+        target = {
+            "weight": weight,
+            "unit": "lb" if unit == "pound" else "kg",
+            "reps": step.get("endConditionValue") if condition == "reps" else None,
+        }
+        if condition == "time":
+            target["seconds"] = step.get("endConditionValue")
+        if condition == "lap.button":
+            target["open"] = True
+        if name not in groups:
+            groups[name] = len(result["exercises"])
+            result["exercises"].append({
+                "name": name, "status": "saved", "previous": [], "proposed": [],
+                "reason": "Saved Garmin targets; no automatic progression applied.",
+            })
+        exercise = result["exercises"][groups[name]]
+        result["executionOrder"].append({
+            "exerciseIndex": groups[name], "setIndex": len(exercise["proposed"]),
+        })
+        exercise["proposed"].append(target)
+        if history.get(name):
+            exercise["previous"].append(history[name].pop(0))
+    if any(a["exerciseIndex"] > b["exerciseIndex"]
+           for a, b in zip(result["executionOrder"], result["executionOrder"][1:])):
+        result["notice"] += " Sets are grouped by exercise; follow the Garmin workout for circuit/superset order."
+    return result
+
+
 class GarminAdapter:
     def __init__(self):
         from garminconnect import Garmin
@@ -1111,7 +1225,8 @@ class GarminAdapter:
         return self.client.garth.put("connectapi", f"/activity-service/activity/{identity(activity_id)}/exerciseSets", json=payload, api=True)
 
     def create(self, payload):
-        return self.client.garth.post("connectapi", "/workout-service/workout", json=payload, api=True)
+        response = self.client.garth.post("connectapi", "/workout-service/workout", json=payload, api=True)
+        return response.json()
 
     def devices(self):
         return self.client.get_devices()
@@ -1121,11 +1236,12 @@ class GarminAdapter:
 
     def deliver(self, workout_id, device_id, name):
         workout_id, device_id = identity(workout_id), identity(device_id)
-        return self.client.garth.post("connectapi", "/device-service/devicemessage/messages", json=[{
+        response = self.client.garth.post("connectapi", "/device-service/devicemessage/messages", json=[{
             "deviceId": device_id, "messageUrl": f"workout-service/workout/FIT/{workout_id}",
             "messageType": "workouts", "groupName": None, "messageName": name,
             "priority": 1, "fileType": "FIT", "metaDataId": workout_id,
         }], api=True)
+        return response.json() if response.content else None
 
 
 class GarminWorkouts:
@@ -1147,10 +1263,83 @@ class GarminWorkouts:
             raise
         return db
 
+    def manual_overrides(self, plan, workout):
+        """Only verified manual saves, not old templates or automatic previews."""
+        if not self.path.exists():
+            return {}
+        current = target_groups(workout)
+        exercises = {e["name"]: e for e in plan["exercises"]}
+        chosen = {}
+        db = self.connect()
+        try:
+            rows = db.execute("SELECT * FROM updates WHERE workout_id=? AND status='done' ORDER BY created DESC", (identity(workout["workoutId"]),)).fetchall()
+            for row in rows:
+                preview = json.loads(row["preview_json"])
+                after = json.loads(row["after_json"])
+                names = preview.get("manualExercises")
+                if names is None:
+                    # Old records have no provenance flag. Full edits were manual;
+                    # target revisions can be compared to their original automatic preview.
+                    original = json.loads(row["before_json"]) if preview.get("fullEdit") else None
+                    if original is None:
+                        ancestor = db.execute(
+                            "SELECT after_json FROM updates WHERE workout_id=? AND before_json=? AND plan_hash=? AND status='superseded' AND created<=? ORDER BY created, rowid LIMIT 1",
+                            (row["workout_id"], row["before_json"], row["plan_hash"], row["created"]),
+                        ).fetchone()
+                        if ancestor:
+                            original = json.loads(ancestor["after_json"])
+                    names = manually_changed_exercises(original, after) if original is not None else []
+                saved = target_groups(after)
+                for name in names:
+                    if name in chosen or name not in current or saved.get(name) != current[name]:
+                        continue
+                    history = next((h for h in exercises.get(name, {}).get("history", []) if h.get("sets")), None)
+                    last_time = history.get("time") if history else plan.get("baselineTime")
+                    last_date = history.get("date") if history else plan.get("baselineDate")
+                    if "lastPerformed" in plan:
+                        performed = plan.get("sharedLastPerformed", plan["lastPerformed"]).get(name, {
+                            "time": plan.get("baselineTime"), "date": plan.get("baselineDate"),
+                        })
+                        last_time, last_date = performed.get("time"), performed.get("date")
+                    saved_at = datetime.fromtimestamp(row["created"], timezone.utc)
+                    if last_time:
+                        completed = datetime.fromisoformat(last_time.replace("Z", "+00:00"))
+                        if completed.tzinfo is None or saved_at <= completed:
+                            continue
+                    elif last_date and saved_at.date().isoformat() <= last_date:
+                        continue
+                    chosen[name] = row["created"]
+        finally:
+            db.close()
+        return chosen
+
+    def next_session(self, plan, workout):
+        names = self.manual_overrides(plan, workout)
+        result = deepcopy(plan)
+        result["source"] = "history_suggestion"
+        if not names:
+            return result
+        saved = saved_session_plan(plan, workout)
+        overrides = {e["name"]: e for e in saved["exercises"] if e["name"] in names}
+        for name, exercise in overrides.items():
+            exercise["manualSavedAt"] = names[name]
+        for index, exercise in enumerate(result["exercises"]):
+            if exercise["name"] in overrides:
+                replacement = overrides.pop(exercise["name"])
+                replacement["previous"] = deepcopy(exercise["previous"])
+                result["exercises"][index] = replacement
+        result["exercises"].extend(overrides.values())
+        result.update(
+            source="manual_override", workoutId=workout["workoutId"],
+            notice="Saved Garmin targets apply only to manually edited exercises for their next completed session. Other exercises use normal progression suggestions.",
+        )
+        return result
+
     def call(self, body, plans):
         with self.lock:
             operation = body.get("operation")
             if operation not in (
+                "next_sessions",
                 "list",
                 "details",
                 "edit",
@@ -1160,6 +1349,32 @@ class GarminWorkouts:
                 "review",
             ):
                 raise ValueError("Unknown Garmin workout operation")
+            if operation == "next_sessions":
+                if not any(not body.get("planType") or p["type"] == body["planType"] for p in plans):
+                    raise ValueError("Choose a workout type")
+                client = self.factory()
+                workouts = client.list()
+                result = []
+                for plan in plans:
+                    matches = [w for w in workouts
+                               if workout_type(w.get("workoutName")) == plan["type"]
+                               and (w.get("sportType") or {}).get("sportTypeKey") == "strength_training"]
+                    if len(matches) > 1:
+                        raise ValueError("Multiple Garmin workouts match " + plan["name"] + "; choose the intended template in Garmin workouts.")
+                    if not matches:
+                        fallback = deepcopy(plan)
+                        fallback["source"] = "history_suggestion"
+                        fallback["notice"] = "No matching saved Garmin workout. Showing automatic history-based suggestions. " + plan.get("notice", "")
+                        result.append(fallback)
+                        continue
+                    workout_id = identity(matches[0]["workoutId"])
+                    workout = client.get(workout_id)
+                    if (identity(workout.get("workoutId")) != workout_id
+                            or workout_type(workout.get("workoutName")) != plan["type"]
+                            or (workout.get("sportType") or {}).get("sportTypeKey") != "strength_training"):
+                        raise ValueError("Garmin workout changed; request the workout again.")
+                    result.append(self.next_session(plan, workout))
+                return {"plans": [p for p in share_exercise_loads(result) if not body.get("planType") or p["type"] == body["planType"]]}
             if operation == "review":
                 name = body.get("workoutName")
                 if not isinstance(name, str) or not 1 <= len(name.strip()) <= 120:
@@ -1285,6 +1500,7 @@ class GarminWorkouts:
                         "workoutId": workout_id,
                         "name": after["workoutName"],
                         "fullEdit": True,
+                        "manualExercises": manually_changed_exercises(before, after),
                         "changes": changes,
                         "before": {
                             "name": before.get("workoutName"),
@@ -1339,6 +1555,8 @@ class GarminWorkouts:
                         "workoutId": workout_id,
                         "name": before.get("workoutName"),
                         "editable": editable,
+                        "canSuggest": bool(plan and plan.get("exercises")),
+                        "manualExercises": [],
                         "changes": [
                             {k: v for k, v in c.items() if k != "path"} for c in changes
                         ],
@@ -1369,7 +1587,7 @@ class GarminWorkouts:
                 if not row:
                     raise ValueError("Preview not found; create a new preview")
                 if operation == "revise":
-                    if row["plan_type"] is None:
+                    if json.loads(row["preview_json"]).get("fullEdit"):
                         raise ValueError(
                             "Full edits cannot be revised as target-only edits"
                         )
@@ -1392,6 +1610,10 @@ class GarminWorkouts:
                     new_token = str(uuid.uuid4())
                     preview.update(
                         previewId=new_token,
+                        manualExercises=sorted(set(
+                            (preview.get("manualExercises", []) if body.get("useSuggestions") else [])
+                            + manually_changed_exercises(base, after)
+                        )),
                         changes=[
                             {k: v for k, v in c.items() if k != "path"} for c in changes
                         ],
@@ -1434,25 +1656,29 @@ class GarminWorkouts:
                     )
                     db.commit()
                     return preview
+                after = json.loads(row["after_json"])
+                saved = {
+                    "ok": True, "workoutId": row["workout_id"],
+                    "name": after.get("workoutName") or "Untitled",
+                    "planType": workout_type(after.get("workoutName")),
+                }
                 if row["status"] == "done":
                     return {
-                        "ok": True,
-                        "workoutId": row["workout_id"],
+                        **saved,
                         "alreadyApplied": True,
                     }
                 if row["status"] == "sending":
                     # Reconcile a lost response or earlier verification failure without
                     # repeating a write whose remote outcome was initially uncertain.
                     actual = self.factory().get(row["workout_id"])
-                    if saved_workout_matches(json.loads(row["after_json"]), actual):
+                    if saved_workout_matches(after, actual):
                         db.execute(
                             "UPDATE updates SET status='done',created=? WHERE id=?",
                             (time.time(), token),
                         )
                         db.commit()
                         return {
-                            "ok": True,
-                            "workoutId": row["workout_id"],
+                            **saved,
                             "alreadyApplied": True,
                             "reconciled": True,
                         }
@@ -1469,7 +1695,6 @@ class GarminWorkouts:
                 if fingerprint(plan) != row["plan_hash"]:
                     raise Conflict("Suggestions changed; create a new preview")
                 before = json.loads(row["before_json"])
-                after = json.loads(row["after_json"])
                 if before == after:
                     raise ValueError("No workout changes to apply")
                 client = self.factory()
@@ -1490,8 +1715,7 @@ class GarminWorkouts:
                 )
                 db.commit()
                 return {
-                    "ok": True,
-                    "workoutId": row["workout_id"],
+                    **saved,
                     "updatedFields": len(json.loads(row["preview_json"])["changes"]),
                 }
             finally:

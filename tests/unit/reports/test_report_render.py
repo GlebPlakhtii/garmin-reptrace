@@ -3,7 +3,7 @@ from io import BytesIO
 from html.parser import HTMLParser
 import json, re, sys, tempfile, unittest, xml.etree.ElementTree as ET
 from unittest.mock import Mock, patch
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from reptrace.reports.render import (
     render_report_html,
@@ -31,11 +31,30 @@ class RenderTests(unittest.TestCase):
         self.assertNotRegex(html, r'(src|href)="https?://')
         self.assertIn("gpt-6-sol", html)
         self.assertIn("kg·reps", html)
+        self.assertIn("Adjusted volume", html)
+        self.assertIn("workload estimate", html)
+        self.assertNotIn("Recorded volume", html)
+        self.assertNotIn("Bodyweight is not added", html)
         self.assertIn("No recorded values", html)
         self.assertEqual(volume_comparisons(facts)[0]["before"], 880)
         self.assertEqual(volume_comparisons(facts)[0]["after"], 850)
         for svg in re.findall(r"<svg\b.*?</svg>", html, re.S):
             ET.fromstring(svg)
+
+    def test_chart_uses_adjusted_values_with_custom_settings(self):
+        data = records()
+        data["volumeSettings"] = {"exercises": {"Barbell Bench Press": {"multiplier": 2}}}
+        facts = session_facts(data, "c")
+        self.assertEqual(volume_comparisons(facts)[0], {
+            "name": "Barbell Bench Press", "before": 1760, "after": 1700,
+        })
+        html = render_report_html(facts).decode()
+        self.assertIn("1,700 kg·reps", html)
+        with patch.object(ImageDraw.ImageDraw, "text", autospec=True) as text:
+            render_report_preview(facts)
+            labels = [call.args[2] for call in text.call_args_list]
+        self.assertIn("ADJUSTED KG·REPS", labels)
+        self.assertIn("ADJUSTED VOLUME · ESTIMATE", labels)
 
     def test_names_and_model_output_cannot_inject_html(self):
         facts = self.facts()

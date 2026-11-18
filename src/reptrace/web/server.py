@@ -17,11 +17,15 @@ from zoneinfo import ZoneInfo
 
 from reptrace.garmin.workouts import GarminWorkouts
 from reptrace.storage.reader import DatabaseReader
-from reptrace.storage.state import WebState, Conflict, revision
+from reptrace.storage.state import WebState, Conflict, revision, set_identity_issue
 from reptrace.storage.coordination import StrengthBusy, strength_lock
 from reptrace.training.planning import build_next_sessions
+from reptrace.training.adaptation import adapt_session
 from reptrace.exports.plans import render_plan
 from reptrace.exports.sessions import export_sessions, MIME
+from reptrace.garmin.running import RunningStore
+from reptrace.training.running import summary_metrics
+from reptrace.training.metrics import estimated_max_kg, is_assisted
 
 STATIC = Path(__file__).with_name("static")
 ZONE = ZoneInfo(os.getenv("USER_TIMEZONE") or "Europe/Kyiv")
@@ -40,6 +44,10 @@ def metric(value):
 def timestamp(stamp):
     value = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+
+def garmin_activity_url(identity):
+    return f"https://connect.garmin.com/modern/activity/{identity}" if re.fullmatch(r"[1-9][0-9]{0,19}", identity) else ""
 
 
 def local_date(stamp):
@@ -91,17 +99,28 @@ def build_payload(
     raw_battery=None,
     raw_device_sync=None,
     raw_collector=None,
+    raw_runs=None,
+    import_markers=None,
 ):
     """Return only display data; no credentials, import hashes or raw audit rows."""
     # A workout crossing midnight belongs to its start date. Exact set times
     # remain available separately; date filters must not split its set log.
+    # Rows without a session key cannot be attributed to a workout. They remain
+    # available in the raw source export without interrupting other history.
+    unlinked = sum(row.get("ActivityID") in (None, "") for rows in (raw_sets, raw_workouts) for row in rows)
+    raw_sets = [row for row in raw_sets if row.get("ActivityID") not in (None, "")]
+    raw_workouts = [row for row in raw_workouts if row.get("ActivityID") not in (None, "")]
+    pending = {str(row["ActivityID"]) for row in import_markers or [] if row.get("importPending")}
+    if pending:
+        raw_sets = [row for row in raw_sets if str(row["ActivityID"]) not in pending]
+        raw_workouts = [row for row in raw_workouts if str(row["ActivityID"]) not in pending]
     session_dates = {str(r["ActivityID"]): local_date(r["time"]) for r in raw_workouts}
     sets = []
     sets_by_session = defaultdict(list)
     for r in raw_sets:
         session = str(r["ActivityID"])
         sets_by_session[session].append(r)
-        exercise = r["Exercise"]
+        exercise = r.get("Exercise") or "Unknown"
         # Undo the retired rear-delt alias for historical sets without rewriting
         # their raw Influx records. Explicit Reverse Pec Deck Fly stays intact.
         if exercise == "Reverse Pec Deck Fly":
@@ -110,9 +129,10 @@ def build_payload(
                 exercise = original
             elif not original and r.get("exerciseCode") == "SEATED_REAR_LATERAL_RAISE":
                 exercise = "Seated Rear Lateral Raise"
+        weight, reps = metric(r.get("weightKg")), metric(r.get("reps"))
         sets.append(
             {
-                "id": session + ":" + str(r["SetIndex"]),
+                "id": f'{session}:{r["SetIndex"]}' if r.get("SetIndex") is not None else f"{session}:",
                 "sessionId": session,
                 "exercise": exercise,
                 "category": r.get("ExerciseCategory", "UNKNOWN"),
@@ -126,10 +146,10 @@ def build_payload(
                 else "garmin",
                 "number": metric(r.get("setNumber")),
                 "order": metric(r.get("setOrder")),
-                "weight": metric(r.get("weightKg")),
-                "reps": metric(r.get("reps")),
+                "weight": weight,
+                "reps": reps,
                 "volume": metric(r.get("volumeKg")),
-                "estimatedMax": metric(r.get("estimated1RMKg")),
+                "estimatedMax": estimated_max_kg(weight, reps, exercise, r.get("ExerciseCategory")),
                 "rest": metric(r.get("restAfterSeconds")),
                 "duration": metric(r.get("durationSeconds")),
                 "originalExercise": r.get("originalExercise") or "",
@@ -153,8 +173,9 @@ def build_payload(
                 "calories": metric(r.get("calories")),
                 "averageHR": metric(r.get("averageHR")),
                 "maxHR": metric(r.get("maxHR")),
-                "url": r.get("activityUrl") or "",
+                "url": garmin_activity_url(identity),
                 "revision": revision(sets_by_session[identity]),
+                "editIssue": set_identity_issue(sets_by_session[identity]),
             }
         )
     recovery = {}
@@ -297,6 +318,7 @@ def build_payload(
                         if not (r.get("source") or "").startswith("Manual")
                     ],
                 ),
+                ("Running activities", raw_runs),
                 ("Daily health", raw_daily),
                 ("Sleep", raw_sleep),
                 ("Body weight", raw_body),
@@ -306,9 +328,42 @@ def build_payload(
             ]
         },
     }
+    runs = []
+    for row in raw_runs or []:
+        kind = str(row.get("activityType") or "")
+        if kind != "running" and not kind.endswith("_running"):
+            continue
+
+        def nonnegative(key):
+            value = metric(row.get(key))
+            return value if value is not None and value >= 0 else None
+
+        identity = str(row.get("ActivityID") or "")
+        distance = nonnegative("distance")
+        runs.append(
+            {
+                "id": identity,
+                "date": local_date(row["time"]),
+                "time": str(row["time"]),
+                "name": str(row.get("activityName") or "Run"),
+                "type": kind,
+                "distanceKm": distance / 1000 if distance is not None else None,
+                "elapsedSeconds": nonnegative("elapsedDuration"),
+                "movingSeconds": nonnegative("movingDuration"),
+                "averageHR": nonnegative("averageHR"),
+                "maxHR": nonnegative("maxHR"),
+                "calories": nonnegative("calories"),
+                **{key: value for key, value in summary_metrics(row).items() if value is not None},
+                **{f"hrZone{n}": nonnegative(f"hrTimeInZone_{n}") for n in range(1, 6)},
+                "url": garmin_activity_url(identity),
+            }
+        )
     return {
         "sets": sets,
         "workouts": workouts,
+        "pendingImports": len(pending),
+        "unlinkedStrengthRows": unlinked,
+        "runs": sorted(runs, key=lambda row: row["time"], reverse=True),
         "recovery": sleep,
         "sync": sync,
         "training": {
@@ -322,16 +377,20 @@ def build_payload(
 
 
 class DataStore:
-    def __init__(self, factory=make_client, ttl=60, state_store=None, snapshot_timeout=1):
+    def __init__(self, factory=make_client, ttl=60, state_store=None, snapshot_timeout=1, running_store=None):
         self.factory = factory
         self.ttl = ttl
+        self.run_summaries_changed = False
         self.lock = threading.Lock()
         self.cached = None
         self.expires = 0
         self.state_store = state_store
         self.snapshot_timeout = snapshot_timeout
+        self.running_store = running_store
 
     def attach_metadata(self, result):
+        if self.running_store:
+            result["runs"] = self.running_store.enrich(result.get("runs", []))
         if self.state_store:
             result.update(self.state_store.read())
             food = self.state_store.food_entries()
@@ -345,17 +404,9 @@ class DataStore:
             result["recovery"] = sorted(recovery.values(), key=lambda r: r["date"])
         # Assistance is not lifted resistance. Keep API/CSV/Excel views aligned
         # with the chart; full exports still retain untouched source records.
-        rules = result.get("volumeSettings", {}).get("exercises", {})
+        settings = result.get("volumeSettings", {})
         for row in result.get("sets", []):
-            configured = rules.get(row["exercise"], {}).get("assistance")
-            assisted = (
-                configured
-                if isinstance(configured, bool)
-                else bool(
-                    re.search(r"\bassisted\b|\bassistance\b", row["exercise"], re.I)
-                )
-            )
-            if assisted:
+            if is_assisted(row["exercise"], settings):
                 row["estimatedMax"] = None
         return result
 
@@ -368,6 +419,7 @@ class DataStore:
                     "StrengthSet",
                     "StrengthExercise",
                     "StrengthManualSession",
+                    "StrengthManualSource",
                     "ActivitySummary",
                     "SleepSummary",
                     "DailyStats",
@@ -390,7 +442,7 @@ class DataStore:
                 records = {}
                 for name in names:
                     where = (
-                        " WHERE \"activityType\" = 'strength_training' OR \"activityType\" = 'strength_training_end'"
+                        " WHERE \"activityType\" = 'strength_training' OR \"activityType\" = 'strength_training_end' OR \"activityType\" =~ /(^running$|_running$)/"
                         if name == "ActivitySummary"
                         else ""
                     )
@@ -408,6 +460,7 @@ class DataStore:
                     records.get("SleepSummary", []),
                     records.get("DailyStats", []),
                     records.get("BodyComposition", []),
+                    import_markers=records.get("StrengthManualSession", []),
                 )
                 self.attach_metadata(result)
                 if self.state_store:
@@ -417,27 +470,30 @@ class DataStore:
         # Workbook rendering uses the captured snapshot and need not hold up writers.
         return export_sessions(result, full=True, source_records=records)
 
-    def get(self, force=False):
+    def get(self, force=False, *, membership_only=False):
+        # Detail imports can change summary metrics but cannot change the list
+        # of collected run IDs. A period sync may reuse this snapshot until TTL.
+        def fresh():
+            return (
+                not force and self.cached is not None and time.monotonic() < self.expires
+                and (membership_only or not self.run_summaries_changed)
+            )
+
         with self.lock:
-            if (
-                not force
-                and self.cached is not None
-                and time.monotonic() < self.expires
-            ):
+            if fresh():
                 return self.cached
         with strength_lock(timeout=self.snapshot_timeout), self.lock:
             # A concurrent reader may have refreshed while this request waited.
-            if (
-                not force
-                and self.cached is not None
-                and time.monotonic() < self.expires
-            ):
+            if fresh():
                 return self.cached
             client, query = self.factory()
             try:
                 sets = query('SELECT * FROM "StrengthSet"')
                 workouts = query(
                     'SELECT "ActivityID", "activityName", "activityUrl", "elapsedDuration", "calories", "averageHR", "maxHR", "source", "timeAccuracy" FROM "ActivitySummary" WHERE "activityType" = \'strength_training\''
+                )
+                runs = query(
+                    'SELECT * FROM "ActivitySummary" WHERE "activityType" =~ /(^running$|_running$)/ ORDER BY time DESC'
                 )
                 sleep = query(
                     'SELECT "sleepTimeSeconds", "avgOvernightHrv", "restingHeartRate", "sleepScore", "deepSleepSeconds", "lightSleepSeconds", "remSleepSeconds", "awakeSleepSeconds" FROM "SleepSummary" ORDER BY time ASC'
@@ -472,6 +528,8 @@ class DataStore:
                     battery,
                     watch,
                     collector,
+                    runs,
+                    query('SELECT "ActivityID", "importPending" FROM "StrengthManualSession" WHERE "importPending" = true'),
                 )
                 self.attach_metadata(result)
                 result["nextSessions"] = build_next_sessions(
@@ -482,6 +540,7 @@ class DataStore:
                     result, ensure_ascii=False, allow_nan=False, separators=(",", ":")
                 ).encode()
                 self.cached = (result, body, gzip.compress(body))
+                self.run_summaries_changed = False
                 self.expires = time.monotonic() + self.ttl
                 return self.cached
             finally:
@@ -489,7 +548,8 @@ class DataStore:
 
 
 STATE = WebState(os.getenv("WEB_STATE_PATH", "/var/lib/form/state.sqlite"))
-STORE = DataStore(state_store=STATE)
+RUNNING_STORE = RunningStore(os.getenv("RUNNING_STATE_PATH", str(STATE.path.parent / "running.sqlite")))
+STORE = DataStore(state_store=STATE, running_store=RUNNING_STORE)
 GARMIN_WORKOUTS = GarminWorkouts(
     os.getenv("GARMIN_WORKOUT_STATE_PATH", "/var/lib/form/garmin-workouts.sqlite")
 )
@@ -575,6 +635,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/database",
             "/api/garmin-workouts",
             "/api/food",
+            "/api/plan-preview",
+            "/api/running",
         ):
             self.send_body(b'{"error":"Not found"}', "application/json", 404)
             return
@@ -595,7 +657,25 @@ class Handler(BaseHTTPRequestHandler):
             )
             if not isinstance(body, dict):
                 raise ValueError("Expected an object")
-            if path == "/api/food":
+            if path == "/api/running":
+                if body.get("operation", "detail") != "detail" or not isinstance(body.get("refresh", False), bool):
+                    raise ValueError("Choose a running detail request")
+                runs = STORE.get(membership_only=True)[0].get("runs", [])
+                identity = str(body.get("id", "latest"))
+                run = next((r for r in runs if r["id"] == identity), None) if identity != "latest" else (runs[0] if runs else None)
+                if run is None:
+                    raise ValueError("Choose a recorded run from Running history")
+                result = RUNNING_STORE.get(run, refresh=body.get("refresh", False))
+                if result.get("syncedAt") and result["syncedAt"] != run.get("detailsSyncedAt"):
+                    with STORE.lock:
+                        STORE.run_summaries_changed = True
+            elif path == "/api/plan-preview":
+                payload, _, _ = STORE.get()
+                result = adapt_session(payload, body, datetime.now(ZONE).date())
+                if body.get("format") == "png":
+                    self.send_body(render_plan(result), "image/png")
+                    return
+            elif path == "/api/food":
                 result = STATE.food_action(body)
                 with STORE.lock:
                     STORE.expires = 0
@@ -610,7 +690,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_body(json.dumps(result).encode(), 'application/json; charset=utf-8')
                     return
                 plans = (
-                    STORE.get(force=body.get("operation") in ("preview", "apply"))[0][
+                    STORE.get(force=body.get("operation") in ("preview", "apply", "next_sessions"))[0][
                         "nextSessions"
                     ]
                     if body.get("operation") not in ("list", "review")
@@ -652,6 +732,8 @@ class Handler(BaseHTTPRequestHandler):
                 if path == "/api/garmin-workouts"
                 else "Database query is temporarily unavailable."
                 if path == "/api/database"
+                else "Running details are temporarily unavailable. Please retry."
+                if path == "/api/running"
                 else "Could not confirm changes. Reload and check the workout before retrying."
             )
             self.send_body(
@@ -678,10 +760,10 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 self.send_body(b'{"error":"Operation history is temporarily unavailable."}', "application/json", 503)
             return
-        if path == "/training/exercise_catalog.json":
+        if path in ("/training/exercise_catalog.json", "/training/running_metrics.json"):
             from importlib.resources import files
 
-            self.send_body(files("reptrace.training").joinpath("exercise_catalog.json").read_bytes(), "application/json; charset=utf-8")
+            self.send_body(files("reptrace.training").joinpath(path.rsplit("/", 1)[1]).read_bytes(), "application/json; charset=utf-8")
             return
         if path == "/api/sessions.xlsx":
             try:
@@ -794,10 +876,15 @@ class Handler(BaseHTTPRequestHandler):
             "/theme.js": ("theme.js", "text/javascript"),
             "/app.js": ("app.js", "text/javascript"),
             "/model.mjs": ("model.mjs", "text/javascript"),
+            "/running.mjs": ("running.mjs", "text/javascript"),
+            "/running-view.mjs": ("running-view.mjs", "text/javascript"),
+            "/running.css": ("running.css", "text/css"),
             "/recovery.mjs": ("recovery.mjs", "text/javascript"),
             "/muscle-map.mjs": ("muscle-map.mjs", "text/javascript"),
             "/chart-motion.mjs": ("chart-motion.mjs", "text/javascript"),
             "/ui-motion.mjs": ("ui-motion.mjs", "text/javascript"),
+            "/time-budget.mjs": ("time-budget.mjs", "text/javascript"),
+            "/time-budget.css": ("time-budget.css", "text/css"),
             "/body-motion.mjs": ("body-motion.mjs", "text/javascript"),
             "/motion.css": ("motion.css", "text/css"),
             "/styles.css": ("styles.css", "text/css"),

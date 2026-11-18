@@ -91,6 +91,17 @@ class WeightProgressionTests(unittest.TestCase):
         self.assertEqual(exercise["status"], "repeat")
         self.assertTrue(all(s["weight"] == 0 for s in exercise["proposed"]))
 
+    def test_explicit_external_load_overrides_assistance_in_exercise_name(self):
+        data = fixture(weights=(40, 40))
+        previous = proposal(data)["exercises"][0]
+        name = "Assisted machine"
+        for row in data["sets"]:
+            row["exercise"] = name
+        data["volumeSettings"] = {"exercises": {name: {"assistance": False}}}
+        current = proposal(data)["exercises"][0]
+        self.assertEqual(current["status"], previous["status"])
+        self.assertEqual(current["proposed"], previous["proposed"])
+
     def test_assistance_never_uses_added_weight_progression(self):
         for name, custom in [
             ("Assisted Pull Up", False),

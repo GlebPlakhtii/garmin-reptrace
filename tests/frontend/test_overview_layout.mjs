@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import * as model from '../../src/reptrace/web/static/model.mjs';
+import * as running from '../../src/reptrace/web/static/running.mjs';
 const source=fs.readFileSync(new URL('../../src/reptrace/web/static/app.js',import.meta.url),'utf8');
 function app(saved=null,blocked=false){
  const values=new Map(saved?[['form-overview-layout',saved]]:[]);
- const context={...model,document:{querySelector:()=>({})},window:{},setTimeout,clearTimeout,localStorage:{getItem:key=>{if(blocked)throw Error();return values.get(key)},setItem:(key,value)=>{if(blocked)throw Error();values.set(key,value)}}};
+ const context={...model,...running,document:{querySelector:()=>({})},window:{},setTimeout,clearTimeout,localStorage:{getItem:key=>{if(blocked)throw Error();return values.get(key)},setItem:(key,value)=>{if(blocked)throw Error();values.set(key,value)}}};
  vm.createContext(context);vm.runInContext(source.slice(source.indexOf('\n')+1,source.indexOf("document.addEventListener('click'"))+`\nthis.api={state,overview,overviewLayout,saveOverviewLayout,overviewControls,workoutCalendar,shiftCalendar,current};toast=()=>{};`,context);
  const a=context.api;a.state.data={sets:[],workouts:[],recovery:[],timezone:'Europe/Kyiv'};a.state.calendarMonth='2024-02';return {...a,values};
 }
@@ -38,6 +39,40 @@ test('calendar shows multiple sessions and respects date and source filters',()=
  const a=app();a.state.range='custom';a.state.from='2024-02-01';a.state.to='2024-02-28';a.state.calendarDay='2024-02-12';
  a.state.data.workouts=[{id:'one',name:'Upper <1>',date:'2024-02-12',source:'garmin'},{id:'two',name:'Lower',date:'2024-02-12',source:'manual'},{id:'out',name:'Outside',date:'2024-02-29',source:'garmin'}];
  a.state.data.sets=[{sessionId:'one',exercise:'Row',date:'2024-02-12',source:'garmin',reps:5,weight:10}];
- let html=a.workoutCalendar(a.current());assert.match(html,/2 workouts · 1 training days/);assert.match(html,/data-session="one"/);assert.match(html,/data-session="two"/);assert.match(html,/Upper &lt;1&gt;/);assert.doesNotMatch(html,/Outside/);
- a.state.source='garmin';html=a.workoutCalendar(a.current());assert.match(html,/1 workouts · 1 training days/);assert.doesNotMatch(html,/data-session="two"/);
+ let html=a.workoutCalendar(a.current());assert.match(html,/2 strength sessions · 0 runs · 1 training day/);assert.match(html,/data-session="one"/);assert.match(html,/data-session="two"/);assert.match(html,/Upper &lt;1&gt;/);assert.doesNotMatch(html,/Outside/);
+ a.state.source='garmin';html=a.workoutCalendar(a.current());assert.match(html,/1 strength session · 0 runs · 1 training day/);assert.doesNotMatch(html,/data-session="two"/);
+});
+
+test('mixed calendar days show both sports, daily distance, run details and filter-aware totals',()=>{
+  const a=app();
+  Object.assign(a.state,{range:'custom',from:'2024-02-12',to:'2024-02-14',calendarDay:'2024-02-12'});
+  a.state.data.workouts=[{id:'lift',date:'2024-02-12',name:'Upper',source:'manual'}];
+  a.state.data.sets=[{sessionId:'lift',date:'2024-02-12',exercise:'Row',source:'manual'}];
+  a.state.data.runs=[
+    {id:'r1',date:'2024-02-12',name:'Trail <A>',distanceKm:3,movingSeconds:900,averageHR:147},
+    {id:'r2',date:'2024-02-12',name:'Easy',distanceKm:2,movingSeconds:720},
+    {id:'r3',date:'2024-02-14',name:'Partial',distanceKm:8,movingSeconds:null},
+    {id:'outside',date:'2024-02-15',name:'Outside',distanceKm:50},
+  ];
+  let html=a.overview(a.current());
+  assert.match(html,/has-strength has-run [^"]*" data-calendar-day="2024-02-12"/);
+  assert.match(html,/1 strength session · 2 runs, 5 km running/);
+  assert.match(html,/1 strength session · 3 runs · 2 training days/);
+  assert.match(html,/data-calendar-run="r1"/);
+  assert.match(html,/Trail &lt;A&gt;/);
+  assert.match(html,/3 km · 15:00 moving · 5:00 \/km · 147 bpm/);
+  assert.match(html,/13 km<\/strong>/);
+  assert.match(html,/27:00<\/strong>/);
+  assert.match(html,/5:24 \/km<\/strong>/);
+  assert.doesNotMatch(html,/Outside/);
+  a.state.source='manual';
+  html=a.overview(a.current());
+  assert.match(html,/1 strength session · 0 runs · 1 training day/);
+  assert.doesNotMatch(html,/data-calendar-run=|0 km<\/strong>/);
+  a.state.source='garmin';
+  a.state.calendarDay='2024-02-14';
+  html=a.overview(a.current());
+  assert.match(html,/0 strength sessions · 3 runs · 2 training days/);
+  assert.match(html,/data-calendar-run="r3"/);
+  assert.doesNotMatch(html,/data-session="lift"|0:00 moving/);
 });

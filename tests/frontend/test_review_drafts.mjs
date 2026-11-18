@@ -86,3 +86,24 @@ test('uncertain server failures retain the exact save identity and locked payloa
   assert.equal(controls.get('[type="submit"]').textContent,'Retry save');
   assert.equal(controls.get('[type="submit"]').disabled,false);
 });
+
+test('repeating a workout keeps its structure without copying completion or replacing an existing draft',()=>{
+  const a=app();
+  const original={id:'old',name:'Routine A',date:'2020-01-01',duration:3000,revision:'r'};
+  a.state.data={workouts:[original],sets:[
+    {sessionId:'old',id:'2',order:2,exercise:'Press',weight:16,reps:8,note:'previous note'},
+    {sessionId:'old',id:'1',order:1,exercise:'Row',weight:25,reps:10},
+  ]};
+  a.showWorkoutEditor(null,'old');
+  const draft=a.state.draft;
+  assert.equal(draft.sessionId,null);
+  assert.notEqual(draft.date,original.date);
+  assert.equal(draft.durationMinutes,'');
+  assert.deepEqual(Array.from(draft.sets,r=>[r.exercise,r.weight,r.reps,r.note,r.id]),[
+    ['Row',null,null,'',undefined],['Press',null,null,'',undefined],
+  ]);
+  assert.equal(draft.sets[1].previous.weight,16);
+  draft.name='In progress';a.persistDraft();a.showWorkoutEditor(null,'old');
+  assert.equal(a.state.draft.name,'In progress');
+  assert.match(a.nodes.get('#editor-content').innerHTML,/before repeating another session/);
+});

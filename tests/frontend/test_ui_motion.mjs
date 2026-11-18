@@ -22,7 +22,7 @@ function fixture() {
   const add=(map,name,fn)=>{if(!map.has(name))map.set(name,new Set());map.get(name).add(fn);};
   const preference={matches:false,addEventListener:(name,fn)=>add(preferenceListeners,name,fn),removeEventListener:(name,fn)=>preferenceListeners.get(name)?.delete(fn)};
   const node=(id,html='',tagName='SECTION')=>({
-    id,tagName,nodeType:1,isConnected:true,innerHTML:html,open:false,
+    id,tagName,nodeType:1,isConnected:true,innerHTML:html,open:false,dataset:{},
     attributes:[],classList:Object.assign(new Set(),{contains(name){return this.has(name);}}),
     parentElement:null,children:[],namespaceURI:'http://www.w3.org/1999/xhtml',
     rect:{top:20,bottom:140,left:20,right:320,width:300,height:120},
@@ -131,10 +131,49 @@ test('dialog entry animation observes native open and close without changing eit
   assert.equal(dialog.open,true);
   assert.equal(f.animations.length,1);
   assert.equal(f.animations[0].node,dialog);
+  assert.equal(f.animations[0].frames[0].scale,'.98');
   dialog.open=false;
   f.mutate([{type:'attributes',target:dialog,attributeName:'open'}]);
   assert.equal(dialog.open,false);
   assert.equal(f.animations[0].cancelled,true);
+  motion.disconnect();
+});
+
+test('calendar months move in chronological direction while focused days stay anchored', () => {
+  const f=fixture();
+  const calendar=month=>{const panel=f.setPanel(month);panel.dataset.motionMonth=month;return panel;};
+  calendar('2026-12');
+  const motion=installUiMotion(f.document,f.window);
+  calendar('2027-01');motion.update();
+  assert.equal(f.animations.at(-1).frames[0].translate,'18px 0');
+  calendar('2026-12');motion.update();
+  assert.equal(f.animations[0].cancelled,true);
+  assert.equal(f.animations.at(-1).frames[0].translate,'-18px 0');
+  const focused=calendar('2026-11');f.document.activeElement=focused;motion.update();
+  assert.equal(f.animations.at(-1).frames[0].translate,undefined);
+  f.reduce(true);calendar('2026-10');motion.update();
+  assert.equal(f.animations.length,3);
+  motion.disconnect();
+});
+
+test('summary feedback animates only changed values, preserving displayed measurements', () => {
+  const f=fixture();
+  const summary=(values,caption='Recorded')=>{
+    const panel=f.setPanel(caption+values.join(','));
+    const metrics=values.map((value,i)=>f.node(`value-${i}`,value,'STRONG'));
+    panel.querySelectorAll=selector=>selector.includes('.stat > strong')?metrics:[];
+    return {panel,metrics};
+  };
+  summary(['12','—','0']);
+  const motion=installUiMotion(f.document,f.window);
+  const next=summary(['15','—','0']);motion.update();
+  assert.equal(f.animations.length,1);
+  assert.equal(f.animations[0].node,next.metrics[0]);
+  assert.equal(next.metrics[0].innerHTML,'15');
+  summary(['15','—','0'],'Updated caption');motion.update();
+  assert.equal(f.animations.length,1,'unchanged values should not replay on caption updates');
+  f.emit('input');summary(['21','—','0']);motion.update();
+  assert.equal(f.animations.length,1,'typing must suppress value motion');
   motion.disconnect();
 });
 

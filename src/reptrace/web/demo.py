@@ -111,6 +111,20 @@ def sample_records(today=None):
         )
         if i % 5 == 0:
             records["BodyComposition"].append({"time": stamp, "weight": 78000 + i * 8})
+    for i in range(24):
+        distance = 4000 + (i % 5) * 1250
+        records["ActivitySummary"].append({
+            "time": (today - timedelta(days=1 + i * 3)).isoformat(),
+            "ActivityID": f"demo-run-{i:03}",
+            "activityType": "trail_running" if i % 4 == 0 else "running",
+            "activityName": "Park trail" if i % 4 == 0 else "Morning run",
+            "distance": distance,
+            "movingDuration": distance / 1000 * (330 + i % 4 * 15),
+            "elapsedDuration": distance / 1000 * (330 + i % 4 * 15) + 60,
+            "averageHR": 142 + i % 8,
+            "maxHR": 165 + i % 5,
+            "calories": 280 + i % 5 * 60,
+        })
     return records
 
 
@@ -125,6 +139,11 @@ class DemoClient:
             return [{"name": name} for name in self.records]
         for name, rows in self.records.items():
             if f'FROM "{name}"' in query:
+                if name == "ActivitySummary" and "WHERE" in query:
+                    if "_running$" in query:
+                        return [r for r in rows if r.get("activityType") == "running" or r.get("activityType", "").endswith("_running")]
+                    if "strength_training" in query:
+                        return [r for r in rows if r.get("activityType") == "strength_training"]
                 return rows
         return []
 
@@ -149,12 +168,16 @@ def main():
         from reptrace.web import server as web
 
         client = DemoClient({} if args.empty else sample_records())
+        from reptrace.web.running_demo import DemoRunningStore
+        web.RUNNING_STORE = DemoRunningStore()
         web.STORE = web.DataStore(
-            factory=lambda: (client, client.query), state_store=web.STATE
+            factory=lambda: (client, client.query), state_store=web.STATE, running_store=web.RUNNING_STORE
         )
 
         class DemoHandler(web.Handler):
             def do_POST(self):
+                if self.path in ("/api/plan-preview", "/api/running"):
+                    return super().do_POST()
                 # Rejected bodies remain unread; do not parse them as the next request.
                 self.close_connection = True
                 if self.local_request():

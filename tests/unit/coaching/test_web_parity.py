@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from reptrace.coaching.assistant import TrainingTools
 from reptrace.storage.state import WebState, Conflict
 from reptrace.telegram.bot import Bot
+from reptrace.training.planning import build_next_sessions
 from tests.unit.reports.test_training_reports import records
 
 
@@ -134,7 +135,8 @@ class WebParityTests(unittest.TestCase):
             return {"text": "Review the preview.", "artifacts": tools.artifacts}
         coach.answer.side_effect = answer
         bot = Bot(api, lambda: [], self.root / "delivery.json", "42", coach=coach,
-                  fetch_data=lambda: self.data)
+                  fetch_data=lambda: self.data,
+                  garmin=Mock(return_value={"plans": build_next_sessions(self.data, date(2026, 10, 25))}))
         with patch("reptrace.telegram.bot.save_action", side_effect=self.apply) as save:
             bot.handle_chat("Send files and change equipment", "turn")
             save.assert_not_called()

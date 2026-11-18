@@ -17,8 +17,8 @@ test('grouped navigation includes every page exactly once and preserves active s
  for(const group of ['Training','Management'])assert.ok(html.includes(`aria-label="${group}"`));
  assert.match(html,/href="#recovery"[^>]*aria-current="page"/);
  const primary=html.slice(0,html.indexOf('<details'));
- for(const key of ['overview','exercises','workouts','volume','recovery','nutrition','garmin','insights'])assert.ok(primary.includes(`href="#${key}"`));
- for(const key of ['next','records','compare','goals','logging','sync','preferences'])assert.ok(!primary.includes(`href="#${key}"`));
+ for(const key of ['overview','exercises','workouts','running','volume','recovery','nutrition','garmin'])assert.ok(primary.includes(`href="#${key}"`));
+ for(const key of ['insights','next','records','compare','goals','logging','sync','preferences'])assert.ok(!primary.includes(`href="#${key}"`));
 });
 test('muscle tags honor corrections, escape names, and leave unknown exercises unassigned',()=>{
  const a=setup();assert.match(a.muscleTag('Barbell Bench Press'),/>Chest</);

@@ -37,7 +37,7 @@
       .topnav-more-toggle, .nav-item, summary, input, select, textarea,
       .search-box, .select-wrap, .exercise-row, .muscle-filter,
       .map-muscle-chip, .map-week-button, .calendar-day, .nutrition-day,
-      .theme-card, .volume-mini, .workout-card) {
+      .theme-card, .volume-mini, .workout-card, .calendar-session) {
     transition:
       color var(--motion-control) var(--motion-ease),
       background-color var(--motion-control) var(--motion-ease),
@@ -50,7 +50,8 @@
   :is(.button, .icon-button, .workout-card, .volume-mini, .theme-card,
       .segmented button, .range-presets button, .muscle-filter,
       .volume-group-picker button, .map-role-switch button,
-      .map-compare-options button, .topnav-link, .topnav-more-toggle) {
+      .map-compare-options button, .topnav-link, .topnav-more-toggle,
+      .calendar-day, .calendar-session, .exercise-row) {
     transition-property: color, background-color, border-color, box-shadow, opacity, transform, scale;
     transition-duration: var(--motion-control);
     transition-timing-function: var(--motion-ease);
@@ -59,6 +60,26 @@
   :is(.topnav-link, .topnav-more-toggle):not(:disabled):not([aria-disabled="true"]):active {
     scale: .985;
     transition-duration: 90ms;
+  }
+
+  :is(.button, .icon-button, .calendar-day, .calendar-session,
+      .theme-card, .segmented button, .range-presets button,
+      .muscle-filter, .map-role-switch button):not(:disabled):not([aria-disabled="true"]):active {
+    scale: .97;
+    transition-duration: 90ms;
+  }
+
+  /* Move the affordance, leaving labels and focus targets in place. */
+  :is(.text-link, .exercise-row, .row-arrow) > .icon {
+    transition: translate var(--motion-control) var(--motion-ease);
+  }
+
+  :is(.text-link, .exercise-row, .row-arrow):focus-visible > .icon {
+    translate: 2px 0;
+  }
+
+  dialog[open]::backdrop {
+    animation: dialog-backdrop-enter 240ms ease-out;
   }
 
   :is(.exercise-row strong, .exercise-row .sparkline, .map-week-button span,
@@ -110,6 +131,21 @@
   #toast {
     transition: opacity 200ms ease, transform 200ms var(--motion-ease);
   }
+}
+
+@media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
+  :is(.text-link, .exercise-row, .row-arrow):not(:disabled):hover > .icon {
+    translate: 2px 0;
+  }
+
+  :is(.calendar-day, .calendar-session, .theme-card):not(:disabled):hover {
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes dialog-backdrop-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {

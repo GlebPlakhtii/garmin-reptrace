@@ -1,4 +1,5 @@
 // Read-only adapter over the exact calculation functions used by the web app.
+import {runningSummary} from '../web/static/running.mjs';
 import * as m from '../web/static/model.mjs';
 import {readFileSync} from 'node:fs';
 
@@ -15,13 +16,18 @@ export function dashboard(data, a, today) {
   if(adjusted)sets=m.adjustedVolumeSets(sets,data.recovery||[],data.volumeSettings);
   const compact=e=>{if(!e)return null;const {rows,history,...rest}=e;return rest;};
   const history=h=>{const {rows,...rest}=h;return rest;};
-  let result={view:a.view,range,source:a.source||'all',volumeMode:adjusted?'adjusted':'recorded',
+  let result={view:a.view,range,pendingImports:data.pendingImports||0,source:a.source||'all',volumeMode:adjusted?'adjusted':'recorded',
     note:adjusted?'Adjusted volume is an estimate, not measured effort or muscle stimulus.':'Recorded external load × reps; assisted resistance volume is unavailable.'},rows=[];
   const recovery=(data.recovery||[]).filter(r=>(!range.from||r.date>=range.from)&&(!range.to||r.date<=range.to));
   switch(a.view) {
-    case 'overview':
-      Object.assign(result,{sessions:filtered.workouts.length,sets:sets.length,reps:m.sumKnown(sets.map(s=>s.reps)),volume:m.sumKnown(sets.map(s=>s.volume)),volumeKnown:sets.filter(s=>m.present(s.volume)).length});
-      rows=m.weeklyWorkouts(filtered.workouts,today,12);break;
+    case 'overview': {
+      const history=m.filterData({...data,sets:all,workouts:data.workouts||[]},{to:today},a.source||'all');
+      const strengthWeeks=m.weeklyWorkouts(history.workouts,today),runWeeks=m.weeklyWorkouts(history.runs,today);
+      Object.assign(result,{sessions:filtered.workouts.length+filtered.runs.length,strengthSessions:filtered.workouts.length,running:runningSummary(filtered.runs),sets:sets.length,reps:m.sumKnown(sets.map(s=>s.reps)),volume:m.sumKnown(sets.map(s=>s.volume)),volumeKnown:sets.filter(s=>m.present(s.volume)).length});
+      rows=strengthWeeks.map(({date,count},i)=>({date,count:count+runWeeks[i].count,strength:count,running:runWeeks[i].count}));
+      result.consistencyWindow='12 Monday-start weeks through today, using the selected record source.';
+      break;
+    }
     case 'exercises':
       rows=a.exercise?m.exerciseSummaries(sets).flatMap(e=>e.history.map(history)):m.exerciseSummaries(sets).map(compact);break;
     case 'sets': rows=sets.slice().sort((a,b)=>b.date.localeCompare(a.date)||(b.time||'').localeCompare(a.time||''));break;

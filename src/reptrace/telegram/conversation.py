@@ -2,6 +2,7 @@
 
 import copy
 import json
+import logging
 import os
 import sqlite3
 import threading
@@ -37,8 +38,24 @@ class Inbox:
             CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, status TEXT, first REAL, ready REAL, payload TEXT);
             CREATE TABLE IF NOT EXISTS refs (chat INTEGER, message INTEGER, request TEXT, context TEXT, PRIMARY KEY(chat,message));
             CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER);
+            CREATE TABLE IF NOT EXISTS retry_notices (request TEXT PRIMARY KEY);
             """)
-            self.db.execute("UPDATE requests SET status='retryable' WHERE status='active'")
+            # Older versions already warned about retryable requests, often on
+            # every boot. Keep their retry buttons without another alert burst.
+            # Recover active requests only after this one-time migration so a
+            # genuinely interrupted attempt still gets its first warning.
+            if not self.db.execute(
+                "SELECT 1 FROM meta WHERE key='retry_notices_initialized'"
+            ).fetchone():
+                self.db.execute(
+                    "INSERT OR IGNORE INTO retry_notices SELECT id FROM requests WHERE status='retryable'"
+                )
+                self.db.execute(
+                    "INSERT INTO meta VALUES ('retry_notices_initialized',1)"
+                )
+            self.db.execute(
+                "UPDATE requests SET status='retryable' WHERE status='active'"
+            )
             self.db.execute(
                 "UPDATE requests SET status='queued' WHERE status='classifying'"
             )
@@ -115,6 +132,12 @@ class Inbox:
 
     def status(self, identity, status):
         with self.lock, self.db:
+            if status == "active":
+                # An explicit retry is a new attempt, with its own warning if
+                # it fails or is interrupted. The request identity stays fixed.
+                self.db.execute(
+                    "DELETE FROM retry_notices WHERE request=?", (identity,)
+                )
             self.db.execute(
                 "UPDATE requests SET status=? WHERE id=?", (status, identity)
             )
@@ -161,7 +184,7 @@ class Delivery:
         r.check()
         result = self.api.call(method, values, **kwargs)
         if (
-            method in ("sendMessage", "sendPhoto", "sendDocument")
+            method in ("sendMessage", "sendPhoto", "sendDocument", "sendWidget")
             and isinstance(result, dict)
             and result.get("message_id")
         ):
@@ -229,6 +252,16 @@ class Runtime:
             return {}
 
     def receive(self, update):
+        if "widget_query" in update:
+            # Serve bounded, read-only snapshots here: an AI request in the
+            # serialized worker must not consume Telegram's 15-second deadline.
+            self.bot.workout_widgets(self.raw).query(update["widget_query"])
+            with self.store.lock, self.store.db:
+                self.store.db.execute(
+                    "INSERT INTO meta VALUES ('offset',?) ON CONFLICT(key) DO UPDATE SET value=max(value,excluded.value)",
+                    (update["update_id"] + 1,),
+                )
+            return
         cb = update.get("callback_query", {})
         m = cb.get("message", {}) if cb else update.get("message", {})
         sender = (cb or m).get("from", {}).get("id")
@@ -323,6 +356,23 @@ class Runtime:
             self.store.status(identity, "completed")
         except Exception as error:
             from reptrace.telegram.voice import VoiceError
+            from reptrace.telegram.bot import TelegramError
+
+            logging.warning(
+                "Telegram request execution failed (%s; status %s).",
+                type(error).__name__, error.code if isinstance(error, TelegramError) else "internal",
+            )
+
+            if updates[0].get("_task") == "reports":
+                # The scheduler checks again after its normal interval. Keep the
+                # report outbox/cursors intact, but do not turn an outage into
+                # a new owner-facing retry button every minute or after restart.
+                self.store.status(identity, "failed")
+                logging.warning(
+                    "Background report check failed (%s); scheduler will retry.",
+                    type(error).__name__,
+                )
+                return
             for key in self.album_keys:
                 album = self.bot.state.get("foodAlbums", {}).pop(key, None)
                 if album:
@@ -330,31 +380,57 @@ class Runtime:
             self.bot.save()
             # Includes uncertain confirmed writes: never replay automatically.
             self.store.status(identity, "retryable")
-            self.control(
-                str(error) if isinstance(error, VoiceError) else "Request interrupted. A confirmed write may already have completed. Check its current state before retrying.",
-                [{"text": "Retry same request", "callback_data": "retry:" + identity}],
+            self.notify_retry(
+                identity,
+                str(error)
+                if isinstance(error, VoiceError)
+                else "Request interrupted. A confirmed write may already have completed. Check its current state before retrying.",
             )
         finally:
             with self.guard:
                 self.active = None
 
-    def worker(self):
+    def notify_retry(self, identity, text):
+        with self.store.lock:
+            if self.store.db.execute(
+                "SELECT 1 FROM retry_notices WHERE request=?", (identity,)
+            ).fetchone():
+                return
+        result = self.control(
+            text,
+            [{"text": "Retry same request", "callback_data": "retry:" + identity}],
+        )
+        # A failed send must remain eligible for notification on the next boot.
+        if result and result.get("message_id"):
+            with self.store.lock, self.store.db:
+                self.store.db.execute(
+                    "INSERT OR IGNORE INTO retry_notices VALUES (?)", (identity,)
+                )
+
+    def notify_interrupted_requests(self):
         with self.store.lock:
             retries = self.store.db.execute(
                 "SELECT id FROM requests WHERE status='retryable'"
             ).fetchall()
         for (identity,) in retries:
             payload = self.store.payload(identity)
+            if payload and payload[0].get("_task") == "reports":
+                # Includes retryable report checks saved by older versions.
+                self.store.status(identity, "failed")
+                continue
             if payload and payload[0].get("_task") == "albums":
                 for key in payload[0].get("albumKeys", []):
                     album = self.bot.state.get("foodAlbums", {}).pop(key, None)
                     if album:
                         self.bot.state.setdefault("pausedFoodAlbums", {})[key] = album
                 self.bot.save()
-            self.control(
+            self.notify_retry(
+                identity,
                 "An earlier request was interrupted. Check current records before retrying a confirmed save.",
-                [{"text": "Retry same request", "callback_data": "retry:" + identity}],
             )
+
+    def worker(self):
+        self.notify_interrupted_requests()
         while True:
             self.bot.path.with_suffix(".worker-health").touch()
             item = self.store.next()
@@ -416,7 +492,7 @@ class Runtime:
             {
                 "offset": self.store.offset(self.bot.state.get("offset", 0)),
                 "timeout": 1,
-                "allowed_updates": ["message", "callback_query"],
+                "allowed_updates": ["message", "callback_query", "widget_query"],
             },
         )
         for update in updates:

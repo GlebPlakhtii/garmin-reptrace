@@ -18,6 +18,10 @@ from reptrace.storage.state import (
 def exercise_mapping(category, code):
     from fitparse.profile import FIELD_TYPES
 
+    # Garmin Connect returns this code for existing workouts and activities,
+    # but the pinned FIT profile predates it.
+    if (category, code) == ("SQUAT", "OVERHEAD_BARBELL_SQUAT"):
+        return category, code
     field = FIELD_TYPES.get(str(category).lower() + "_exercise_name")
     if not field or (
         code and code not in {str(x).upper() for x in (field.values or {}).values()}
@@ -143,8 +147,12 @@ class GarminIntegration:
                     )
                 before_item = deepcopy(item)
                 candidates = item.get("exercises") or []
+                identities = {
+                    (candidate.get("category"), candidate.get("name"))
+                    for candidate in candidates
+                }
                 if (
-                    len(candidates) == 1
+                    len(identities) == 1
                     and raw.get("exerciseCode")
                     and raw["exerciseCode"]
                     != (candidates[0].get("name") or candidates[0].get("category"))
@@ -174,11 +182,12 @@ class GarminIntegration:
                     category, code = exercise_mapping(
                         c.get("category"), c.get("exerciseCode")
                     )
-                    if len(item.get("exercises") or []) != 1:
+                    if len(identities) != 1:
                         raise ValueError(
                             "Multiple or missing exercise candidates need explicit mapping review"
                         )
-                    item["exercises"][0].update(category=category, name=code)
+                    for candidate in candidates:
+                        candidate.update(category=category, name=code)
                     row.update(
                         exercise=(code or category).replace("_", " ").title(),
                         garminCategory=category,

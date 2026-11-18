@@ -20,7 +20,7 @@ import uuid
 from reptrace.exports.sessions import export_sessions, MIME
 from reptrace.telegram.formatting import format_chat_text, split_rich_text
 from reptrace.training.planning import TYPES, workout_type
-from reptrace.exports.plans import render_plan
+from reptrace.exports.plans import render_plan, fmt, load_label, target_count_label, plan_caption
 from reptrace.exports.garmin_preview import render_garmin_preview_image
 from reptrace.reports.facts import (
     weekly_facts,
@@ -31,6 +31,7 @@ from reptrace.reports.facts import (
     monday,
 )
 from reptrace.reports.render import render_report_html, render_report_preview
+from reptrace.reports.workout_sheet import workout_sheet_facts, render_workout_sheet, photo_suitable
 from reptrace.coaching.assistant import TrainingCoach, TrainingTools, quality_review
 from reptrace.reports.monthly import (
     monthly_facts,
@@ -40,6 +41,7 @@ from reptrace.reports.monthly import (
 )
 from reptrace.nutrition.estimation import FoodEstimator
 from reptrace.training.review import compare_plan
+from reptrace.telegram.running import fetch_running, handle as handle_running
 
 MENU = {
     "inline_keyboard": [
@@ -61,10 +63,13 @@ MENU = {
             {"text": "Data quality", "callback_data": "report:quality"},
         ],
         [{"text": "Export Excel", "callback_data": "export:all"}],
+        [{"text": "Workout image", "callback_data": "workout:latest"}],
+        [{"text":"Running overview","callback_data":"running:30"},{"text":"Latest run report","callback_data":"run:latest"}],
         [
             {"text": "Ask coach", "callback_data": "coach:help"},
             {"text": "Adapt workout", "callback_data": "coach:adapt"},
         ],
+        [{"text": "Create new Garmin workout", "callback_data": "coach:create"}],
     ]
 }
 
@@ -120,7 +125,7 @@ class Telegram:
         self.last_send = {}
 
     def call(self, method, values, photo=None, document=None, filename="report.html"):
-        if method in ("sendPhoto", "sendMessage", "sendDocument", "sendRichMessage"):
+        if method in ("sendPhoto", "sendMessage", "sendDocument", "sendRichMessage", "sendWidget", "editMessageWidgetData"):
             elapsed = time.monotonic() - self.last_send.get(values["chat_id"], 0)
             if elapsed < 1.1:
                 time.sleep(1.1 - elapsed)
@@ -145,6 +150,8 @@ class Telegram:
                 if photo is not None
                 else MIME
                 if filename.lower().endswith(".xlsx")
+                else "image/png"
+                if filename.lower().endswith(".png")
                 else "text/html; charset=utf-8"
             )
             filename = "next-session.png" if photo is not None else Path(filename).name
@@ -162,22 +169,24 @@ class Telegram:
             self.base + method, data=body, headers={"Content-Type": content_type}
         )
         try:
-            with urllib.request.urlopen(request, timeout=45) as response:
+            with urllib.request.urlopen(request, timeout=10 if method in ("answerWidgetQuery", "editMessageWidgetData") else 45) as response:
                 result = json.load(response)
         except urllib.error.HTTPError as error:
             try:
                 details = json.loads(error.read())
             except (ValueError, OSError):
                 details = {}
+            logging.warning("Telegram %s rejected (status %s).", method, error.code)
             raise TelegramError(
                 error.code, details.get("parameters", {}).get("retry_after", 5),
                 "message is not modified" in details.get("description", "").lower()
             ) from None
-        except (OSError, ValueError):
+        except (OSError, ValueError) as error:
+            logging.warning("Telegram %s transport failed (%s).", method, type(error).__name__)
             raise TelegramError("network") from None
         if not result.get("ok"):
             raise TelegramError(result.get("error_code", "unknown"))
-        if method in ("sendPhoto", "sendMessage", "sendDocument", "sendRichMessage"):
+        if method in ("sendPhoto", "sendMessage", "sendDocument", "sendRichMessage", "sendWidget", "editMessageWidgetData"):
             self.last_send[values["chat_id"]] = time.monotonic()
         return result["result"]
 
@@ -239,7 +248,9 @@ class Bot:
         food_estimator=None,
         food_action=None,
         garmin_review=None,
+        running=None,
     ):
+        self.running = running or fetch_running
         self.database = database
         self.garmin = garmin or fetch_garmin
         self.garmin_review = garmin_review
@@ -283,6 +294,9 @@ class Bot:
         temporary.replace(self.path)
 
     def handle(self, update):
+        if "widget_query" in update:
+            self.workout_widgets().query(update["widget_query"])
+            return
         callback = update.get("callback_query")
         message = callback.get("message", {}) if callback else update.get("message", {})
         sender = (callback or message).get("from", {}).get("id")
@@ -315,6 +329,13 @@ class Bot:
         if callback:
             self.api.call("answerCallbackQuery", {"callback_query_id": callback["id"]})
             command = callback.get("data", "")
+            if command.startswith(("running:", "run:")):
+                kind, argument = command.split(":", 1)
+                handle_running(self, "/running" if kind == "running" else "/run", argument, str(update["update_id"]))
+                return
+            if command in ("workout:latest", "widget:latest"):
+                self.send_workout_image(str(update["update_id"]))
+                return
             if command.startswith("demo:"):
                 from reptrace.telegram.card_demo import CardDemo
                 CardDemo(self.api, str(self.path) + ".demo.sqlite3", self.owner).callback(callback)
@@ -380,6 +401,10 @@ class Bot:
                 return
             if command.startswith("coach:"):
                 text = "Send a question about your training history, for example: Why has my bench press stalled? Use /adapt Upper 1, 40 minutes, no cable machine to draft an adjusted workout. /memory shows saved preferences; /remember saves a lasting preference; /reset clears the conversation. You can also ask to add, edit or delete workouts, sets, goals, muscle mappings, progression rules or recovery overrides; review the preview and press Save."
+                if command == "coach:create":
+                    text = "Describe a new Garmin strength workout in a message, or send a program image. Any workout name and new exercises are supported; no existing template or training history is needed. Example: Create a new Garmin workout called Hotel circuit with 3 rounds of 12 goblet squats, 10 push-ups and a 30-second plank. Include loads and rests if you know them. Review the preview, then Save and send. Custom movements use a generic Garmin category with your exact exercise name in the description when no exact code exists."
+                elif command == "coach:adapt":
+                    text = "Tell me which completed workout to shorten, your available time and exercises to protect. Example: I have 35 minutes today. Shorten my last workout, keep all bench press sets, and skip cable exercises. Any recorded session can be used, including custom names. You will get a separate proposal showing cuts, timing assumptions and whether your priority sets fit. To save it as a new Garmin workout, ask me to create one from the proposal."
                 self.api.call("sendMessage", {"chat_id": chat_id, "text": text})
                 return
             if command.startswith("report:"):
@@ -418,6 +443,12 @@ class Bot:
                 return
             parts = text.split(maxsplit=1)
             command = parts[0].split("@")[0].lower() if parts else ""
+            if command in ("/running", "/runs", "/run", "/runcompare"):
+                handle_running(self, command, parts[1].strip() if len(parts)>1 else "", str(update["update_id"]))
+                return
+            if command in ("/workout", "/widget"):
+                self.send_workout_image(str(update["update_id"]))
+                return
             if command == "/food":
                 if len(parts) == 1:
                     self.api.call(
@@ -491,7 +522,7 @@ class Bot:
                     "sendMessage",
                     {
                         "chat_id": chat_id,
-                        "text": "Choose an action:",
+                        "text": "Choose an action. Upper/Lower buttons are shortcuts; Create new Garmin workout supports any strength routine and new exercises.",
                         "reply_markup": MENU,
                     },
                 )
@@ -610,7 +641,7 @@ class Bot:
                     "sendMessage",
                     {
                         "chat_id": chat_id,
-                        "text": "Use /menu to show the action buttons. Choose the next session proposal. Targets use your latest named workouts. /weekly shows last week; /report analyzes your latest session. Weekly, monthly and post-workout reports are automatic when enabled. Use /export for an Excel workbook, or /export latest for the last session. You can also send a normal question to the coach.",
+                        "text": "Use /menu to show the action buttons. Choose the next session proposal. Targets use your latest named workouts. /weekly shows last week; /report analyzes your latest session; /workout shows every recorded set in one image. Weekly, monthly and post-workout reports are automatic when enabled. Use /export for an Excel workbook, or /export latest for the last session. Use /running for running progress, /runs to browse, and /run latest for charts, zones, dynamics and laps. You can also send a normal question to the coach.",
                     },
                 )
                 return
@@ -637,9 +668,45 @@ class Bot:
         if not selected:
             raise RuntimeError("No proposal data returned")
         for plan in selected:
-            caption = f"{plan['name']} · complete workout · based on {plan['baselineDate'] or 'no recorded session'}. Proposed targets, not completed sets."
-            values = {"chat_id": chat_id, "caption": caption}
-            self.api.call("sendPhoto", values, photo=render_plan(plan))
+            self.send_plan(plan, chat_id)
+
+    def send_plan(self, plan, chat_id, caption=None):
+        """Finish a read-only plan request even when Telegram cannot deliver its photo."""
+        caption = caption or plan_caption(plan)
+        values = {"chat_id": chat_id, "caption": caption}
+        image = render_plan(plan)
+        try:
+            self.api.call("sendPhoto", values, photo=image)
+            return
+        except TelegramError as error:
+            code = error.code
+            if code not in (400, "network") and not (isinstance(code, int) and code >= 500):
+                raise
+            logging.warning("Telegram plan photo unavailable (status %s); using fallback delivery.", code)
+        if code == 400:
+            # A rejected photo was not delivered: preserve the original image as a file.
+            try:
+                self.api.call("sendDocument", values, document=image, filename="next-session.png")
+                return
+            except TelegramError as error:
+                code = error.code
+                if code not in (400, "network") and not (isinstance(code, int) and code >= 500):
+                    raise
+                logging.warning("Telegram plan document unavailable (status %s); sending text targets.", code)
+        # A timeout may have delivered the image. Do not retry the uncertain upload;
+        # supply a clearly labelled alternative for this read-only request instead.
+        delivery = ("Image delivery could not be confirmed. Workout targets follow."
+                    if code == "network" else "Telegram could not deliver the image. Workout targets follow.")
+        lines = [caption, delivery, plan.get("notice", "")]
+        for exercise in plan["exercises"]:
+            lines.append("\n" + exercise["name"])
+            for index, target in enumerate(exercise["proposed"], 1):
+                lines.append(
+                    f"Set {index}: {load_label(exercise['name'], target['weight'], target.get('unit', 'kg'))} × {target_count_label(target)}"
+                )
+            lines.append(exercise.get("reason", ""))
+        for part in split_text("\n".join(lines)):
+            self.api.call("sendMessage", {"chat_id": chat_id, "text": part})
 
     def food_reply_target(self, message):
         reply = message.get("reply_to_message", {})
@@ -1215,6 +1282,47 @@ class Bot:
         self.state.setdefault("reportOutbox", {}).pop(key, None)
         self.save()
 
+    def workout_widgets(self, api=None):
+        from reptrace.telegram.workout_widgets import WorkoutWidgets
+        return WorkoutWidgets(str(self.path) + ".widgets.sqlite3", self.owner, api or self.api)
+
+    def send_workout_image(self, command_id):
+        if not self.fetch_data:
+            self.api.call("sendMessage", {"chat_id": self.owner, "text": "Workout data is unavailable. Try /workout again later."})
+            return
+        data = self.fetch_data()
+        today = self.clock().astimezone(self.zone).date().isoformat()
+        workouts = sorted(
+            (w for w in data["workouts"] if w["date"] <= today),
+            key=lambda w: (w["date"], w.get("time", "")), reverse=True,
+        )
+        if not workouts:
+            self.api.call("sendMessage", {"chat_id": self.owner, "text": "No completed strength session is available yet."})
+            return
+        facts = workout_sheet_facts(data, workouts[0]["id"])
+        self.reference_context = {"reportId": "workout-image:" + command_id,
+                                  "workout": facts["workout"], "reportType": "workout-image"}
+        try:
+            image = render_workout_sheet(facts)
+        except ValueError as error:
+            self.api.call("sendMessage", {"chat_id": self.owner, "text": str(error)})
+            return
+        workout = facts["workout"]
+        values = {"chat_id": self.owner, "caption": (
+            f"{workout['name'][:200]} · {workout['date']} · Complete workout, all {facts['totals']['sets']} recorded sets. "
+            "Adjusted volume is an estimate. /report adds charts and analysis."
+        )}
+        if photo_suitable(image):
+            try:
+                self.api.call("sendPhoto", values, photo=image)
+                return
+            except TelegramError as error:
+                if error.code != 400 and not (isinstance(error.code, int) and error.code >= 500):
+                    raise
+                logging.warning("Workout photo unavailable (status %s); sending the original PNG.", error.code)
+        self.api.call("sendDocument", values, document=image,
+                      filename="workout-" + workout["date"] + ".png")
+
     def handle_report(self, kind, command_id, month=None):
         if kind == "status":
             now = self.clock().astimezone(self.zone)
@@ -1486,6 +1594,7 @@ class Bot:
                 allow_memory,
                 database=self.database,
                 garmin=self.garmin,
+                running=self.running,
             )
             current_images = images
 
@@ -1636,15 +1745,10 @@ class Bot:
                 elif plan.get("kind") == "xlsx":
                     self.send_excel(plan["options"])
                 else:
-                    self.api.call(
-                        "sendPhoto",
-                        {
-                            "chat_id": self.owner,
-                            "caption": plan["name"]
-                            + (" · next-session proposal; not performed training." if plan.get("kind") == "plan_image"
-                               else " · adapted proposal; original history unchanged."),
-                        },
-                        photo=render_plan(plan),
+                    self.send_plan(
+                        plan, self.owner,
+                        caption=(plan_caption(plan) if plan.get("kind") == "plan_image" else plan["name"]
+                                 + " · adapted proposal; original history unchanged."),
                     )
             else:
                 self.send_edit_preview(
@@ -1913,7 +2017,7 @@ class Bot:
             {
                 "offset": self.state.get("offset", 0),
                 "timeout": 1 if self.state.get("foodAlbums") else 30,
-                "allowed_updates": ["message", "callback_query"],
+                "allowed_updates": ["message", "callback_query", "widget_query"],
             },
         )
         for update in updates:
@@ -2053,7 +2157,7 @@ def save_action(body):
 
 
 def fetch_plans():
-    return fetch_data()["nextSessions"]
+    return fetch_garmin({"operation": "next_sessions"})["plans"]
 
 
 def split_text(text, limit=3500):
@@ -2127,6 +2231,7 @@ def main():
         {"command": "next", "description": "Choose a session"},
         {"command": "all", "description": "Images for all four sessions"},
         {"command": "weekly", "description": "Progress from last Monday to Sunday"},
+        {"command": "workout", "description": "Complete latest workout image with every recorded set"},
         {
             "command": "report",
             "description": "HTML graphs and AI analysis of the latest session",

@@ -15,8 +15,8 @@ import uuid
 from reptrace.storage.coordination import protected_activity, strength_lock
 
 from reptrace.training.equipment import validate_equipment
-from reptrace.training.catalog import MUSCLE_GROUPS
-from reptrace.training.strength import BODYWEIGHT_CATEGORIES, EXERCISE_NAME_ALIASES
+from reptrace.training.catalog import EXERCISE_NAME_ALIASES, MUSCLE_GROUPS, recorded_exercise_mappings
+from reptrace.training.metrics import estimated_max_kg
 
 MEASUREMENTS = (
     "StrengthSet",
@@ -55,6 +55,14 @@ def revision(rows):
             separators=(",", ":"),
         ).encode()
     ).hexdigest()
+
+
+def set_identity_issue(rows):
+    """Check the stable set keys required for an unambiguous replacement."""
+    keys = [str(row["SetIndex"]) for row in rows if row.get("SetIndex") not in (None, "")]
+    if len(keys) != len(rows) or len(set(keys)) != len(keys):
+        return "This workout has missing or repeated set identifiers. Review its source records before editing."
+    return ""
 
 
 def snapshot_revision(points):
@@ -181,7 +189,7 @@ def plan_workout(body, before, catalog, database, zone, request_id):
     if original:
         stamp = original["time"]
         tags = dict(original["tags"])
-        name = original["fields"]["activityName"]
+        name = original["fields"].get("activityName") or "Strength training"
         day = (
             datetime.fromisoformat(stamp.replace("Z", "+00:00")).astimezone(zone).date()
         )
@@ -229,6 +237,9 @@ def plan_workout(body, before, catalog, database, zone, request_id):
     rows = body.get("sets")
     if not isinstance(rows, list) or not 1 <= len(rows) <= 250:
         raise ValueError("A workout must have 1–250 sets")
+    issue = set_identity_issue(snapshot_rows(before))
+    if issue:
+        raise Conflict(issue)
     previous = {
         str(p["tags"]["ActivityID"]) + ":" + str(p["tags"]["SetIndex"]): p
         for p in before
@@ -257,6 +268,11 @@ def plan_workout(body, before, catalog, database, zone, request_id):
         if match:
             exercise = match
         category, code = catalog.get(exercise, ("MANUAL", exercise))
+        # Exercise labels can refer to different Garmin codes in older sessions.
+        # Retain this set's mapping unless the user identifies a different movement.
+        if old and exercise == (old["tags"].get("Exercise") or "Unknown"):
+            category = old["tags"].get("ExerciseCategory", category)
+            code = old["fields"].get("exerciseCode", code)
         if 'garminCategory' in row or 'garminExerciseCode' in row:
             from reptrace.garmin.integration import exercise_mapping
             category, code = exercise_mapping(row.get('garminCategory'), row.get('garminExerciseCode'))
@@ -272,7 +288,9 @@ def plan_workout(body, before, catalog, database, zone, request_id):
         fields = dict(old["fields"]) if old else {}
         changed = (
             not old
-            or old["tags"]["Exercise"] != exercise
+            or (old["tags"].get("Exercise") or "Unknown") != exercise
+            or old["tags"].get("ExerciseCategory") != category
+            or fields.get("exerciseCode") != code
             or fields.get("weightKg") != weight
             or fields.get("reps") != reps
             or (fields.get("dataNote") or "") != note
@@ -285,21 +303,15 @@ def plan_workout(body, before, catalog, database, zone, request_id):
             fields["reps"] = reps
         if weight is not None and reps is not None:
             fields["volumeKg"] = float(weight * reps)
-            if (
-                weight > 0
-                and 1 <= reps <= 10
-                and category not in BODYWEIGHT_CATEGORIES
-                and category != "MANUAL"
-            ):
-                fields["estimated1RMKg"] = float(
-                    weight if reps == 1 else weight * (1 + reps / 30)
-                )
+            estimate = estimated_max_kg(weight, reps, exercise, category)
+            if estimate is not None:
+                fields["estimated1RMKg"] = float(estimate)
         if note:
             fields["dataNote"] = note
         if changed:
             fields["source"] = "Manual Web"
             if old:
-                fields.setdefault("originalExercise", old["tags"]["Exercise"])
+                fields.setdefault("originalExercise", (old["tags"].get("Exercise") or "Unknown"))
         if not old:
             fields.update(sourceDate=day.isoformat(), timeAccuracy="date-only")
         elif date_changed:
@@ -318,7 +330,7 @@ def plan_workout(body, before, catalog, database, zone, request_id):
                 activityUrl=f"https://connect.garmin.com/modern/activity/{numeric_id}",
             )
         point_tags = dict(
-            common,
+            old["tags"] if old else common,
             Exercise=exercise,
             ExerciseCategory=category,
             SetIndex=old["tags"]["SetIndex"] if old else f"web-{request_id}-{index}",
@@ -791,12 +803,12 @@ class WebState:
                 else:
                     raise Conflict("This request was undone. Reload before retrying.")
             if (
-                kind in ("muscle_save", "progression_save")
+                kind in ("muscle_save", "progression_save", "goal_save", "goal_archive")
                 and "metadataRevision" in body
                 and body["metadataRevision"] != self.read()["metadataRevision"]
             ):
                 raise Conflict(
-                    "Settings changed. Refresh before saving these settings."
+                    "Goals or settings changed. Refresh before saving."
                 )
             before = []
             after = []
@@ -1152,6 +1164,8 @@ class WebState:
                         before = snapshot(query, identity)
                         if body.get("sessionId") and not before:
                             raise ValueError("Workout not found")
+                        if any(p["measurement"] == "StrengthManualSession" and p["fields"].get("importPending") for p in before):
+                            raise Conflict("Resume the interrupted manual import before editing this workout.")
                         expected = body.get("expectedMetadata")
                         if expected is not None:
                             summary = next(
@@ -1187,10 +1201,7 @@ class WebState:
                         raw = query(
                             'SELECT "Exercise",  "ExerciseCategory", LAST("exerciseCode") FROM "StrengthSet" GROUP BY "Exercise", "ExerciseCategory"'
                         )
-                        catalog = {
-                            r["Exercise"]: (r["ExerciseCategory"], r["last"])
-                            for r in raw
-                        }
+                        catalog = recorded_exercise_mappings(raw)
                         if kind == "workout_delete":
                             original = next(
                                 (
@@ -1208,7 +1219,7 @@ class WebState:
                                 raise Conflict(
                                     "This workout changed. Request a fresh preview."
                                 )
-                            name = original["fields"]["activityName"]
+                            name = original["fields"].get("activityName") or "Strength training"
                             # Keep a tombstone so Garmin sync cannot resurrect a deleted session.
                             after = [
                                 {

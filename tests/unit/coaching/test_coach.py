@@ -9,6 +9,7 @@ from reptrace.coaching.assistant import (
     TrainingCoach,
     quality_review,
     TOOLS,
+    MAX_TOOL_ROUNDS,
 )
 from reptrace.training.planning import build_next_sessions
 from reptrace.telegram.bot import Bot
@@ -16,6 +17,32 @@ from tests.unit.reports.test_training_reports import records, row, workout
 
 
 class CoachToolsTests(unittest.TestCase):
+    def test_batch_maps_a_complete_program_without_training_history(self):
+        tools = TrainingTools({}, {})
+        queries = ["bench press", "incline dumbbell bench press", "flye", "lateral raise", "triceps extension", "pull up", "lat pulldown", "row", "straight arm pulldown", "rear lateral raise", "cable curl", "ez bar curl", "custom variation"]
+        result = tools.call("search_garmin_exercises_batch", {"queries":queries})
+        self.assertEqual([r["query"] for r in result["results"]], queries)
+        self.assertTrue(all(len(r["exercises"]) <= 12 for r in result["results"]))
+        self.assertTrue(result["results"][0]["truncated"])
+        self.assertIn("BENCH_PRESS", result["genericCategories"])
+        self.assertFalse(tools.state)
+        for invalid in ([], ["curl"]*31, "curl", [None]):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                tools.call("search_garmin_exercises_batch", {"queries":invalid})
+
+    def test_workout_creation_is_still_available_after_nine_lookups(self):
+        tools = TrainingTools({}, {}, request_id="long-program", garmin=Mock(return_value={"id":"creation", "preview":"New Push and Pull", "items":[{"payload":{"workoutName":"Push"}}, {"payload":{"workoutName":"Pull"}}]}))
+        calls = [{"output":[{"type":"function_call", "name":"search_garmin_exercises", "arguments":'{"query":"curl"}', "call_id":str(i)}]} for i in range(9)]
+        calls.append({"output":[{"type":"function_call", "name":"propose_garmin_workout_creation", "arguments":json.dumps({"sessions_json":json.dumps([{"name":"Push", "steps":[]}, {"name":"Pull", "steps":[]}]), "device_id":None}), "call_id":"creation"}]})
+        calls.append({"output":[{"type":"message", "content":[{"type":"output_text", "text":"Creation previews queued for review."}]}]})
+        coach = TrainingCoach("key", "gpt-6-sol")
+        coach.request = Mock(side_effect=calls)
+        result = coach.answer("Create both new workouts", tools)
+        self.assertIn("previews", result["text"])
+        self.assertNotEqual(coach.request.call_args_list[9].args[0].get("tool_choice"), "none")
+        self.assertEqual(tools.garmin.call_args.args[0]["operation"], "creation_preview")
+        self.assertEqual(len(tools.state["pendingEdits"]), 1)
+
     def tools(self, allow=False):
         return TrainingTools(
             records(),
@@ -120,6 +147,9 @@ class CoachToolsTests(unittest.TestCase):
 
     def test_substitution_uses_replacement_history_not_equivalent_load(self):
         data = records()
+        # The replacement comes from a different workout, outside the retained
+        # Upper 1 structure (where duplicating an exercise is correctly rejected).
+        data["workouts"][1]["name"] = "Upper 2"
         data["sets"].append(
             row("b", "2026-10-13", 22, 9, exercise="Incline Dumbbell Bench Press")
         )
@@ -401,7 +431,7 @@ class CoachToolsTests(unittest.TestCase):
                     }
                 ]
             }
-            for i in range(9)
+            for i in range(MAX_TOOL_ROUNDS)
         ]
         coach = TrainingCoach("key", "gpt-6-sol")
         coach.request = Mock(

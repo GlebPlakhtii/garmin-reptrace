@@ -76,6 +76,86 @@ class BotTests(unittest.TestCase):
         render.assert_called_once_with(plans()[0])
 
     @patch("reptrace.telegram.bot.render_plan", return_value=b"png")
+    def test_saved_garmin_targets_are_labelled_in_photo_and_text_fallback(self, render):
+        self.fetch.return_value = [dict(plans()[0], source="garmin_template", notice="Saved Garmin targets", exercises=[{
+            "name": "Synthetic Press", "proposed": [{"weight": 72.5, "reps": 11}],
+            "reason": "Saved Garmin targets; no automatic progression applied.",
+        }])]
+        self.api.call.side_effect = [TelegramError(500), {"message_id": 12}]
+        self.bot().handle(update())
+        calls = self.api.call.call_args_list
+        self.assertIn("saved Garmin targets", calls[0].args[1]["caption"])
+        self.assertIn("72.5 kg × 11 reps", calls[1].args[1]["text"])
+        self.assertIn("saved Garmin targets", calls[1].args[1]["text"])
+
+    @patch("reptrace.telegram.bot.render_plan", return_value=b"png")
+    def test_plan_upload_server_failure_delivers_all_targets_as_text(self, render):
+        plan = dict(plans()[0], exercises=[{
+            "name": "Synthetic Press",
+            "proposed": [{"weight": 30, "reps": 8}, {"weight": None, "reps": 9}],
+            "reason": "Review missing load before training.",
+        }])
+        self.fetch.return_value = [plan]
+        self.api.call.side_effect = [TelegramError(500), {"message_id": 12}]
+        self.bot().handle(update())
+        calls = self.api.call.call_args_list
+        self.assertEqual([c.args[0] for c in calls], ["sendPhoto", "sendMessage"])
+        text = calls[1].args[1]["text"]
+        self.assertIn("Set 1: 30 kg × 8 reps", text)
+        self.assertIn("Set 2: — kg × 9 reps", text)
+        self.assertIn(plan["exercises"][0]["reason"], text)
+        self.assertEqual(calls[1].args[1]["chat_id"], 42)
+
+    @patch("reptrace.telegram.bot.render_plan", return_value=b"png")
+    def test_plan_rate_limit_and_permission_errors_stay_retryable(self, render):
+        for error in (TelegramError(429), TelegramError(401), TelegramError(403)):
+            with self.subTest(code=error.code):
+                self.api.reset_mock()
+                self.api.call.side_effect = error
+                with self.assertRaises(TelegramError):
+                    self.bot().handle(update())
+                self.assertEqual(self.api.call.call_count, 1)
+
+    @patch("reptrace.telegram.bot.render_plan", return_value=b"original-png")
+    def test_rejected_plan_photo_falls_back_to_original_png_document(self, render):
+        self.api.call.side_effect = [TelegramError(400), {"message_id": 12}]
+        self.bot().handle(update())
+        calls = self.api.call.call_args_list
+        self.assertEqual([c.args[0] for c in calls], ["sendPhoto", "sendDocument"])
+        self.assertEqual(calls[1].kwargs, {"document": b"original-png", "filename": "next-session.png"})
+        self.assertEqual(calls[0].args[1], calls[1].args[1])
+
+    @patch("reptrace.telegram.bot.render_plan", return_value=b"png")
+    def test_plan_timeout_supplies_text_without_retrying_uncertain_upload(self, render):
+        self.fetch.return_value = [dict(plans()[0], exercises=[{
+            "name": "Synthetic Raise", "proposed": [{"weight": 9, "reps": 12}], "reason": "Shared load.",
+        }])]
+        self.api.call.side_effect = [TelegramError("network"), {"message_id": 12}]
+        self.bot().handle(update())
+        calls = self.api.call.call_args_list
+        self.assertEqual([c.args[0] for c in calls], ["sendPhoto", "sendMessage"])
+        self.assertIn("could not be confirmed", calls[1].args[1]["text"])
+        self.assertIn("9 kg × 12 reps", calls[1].args[1]["text"])
+
+    @patch("reptrace.telegram.bot.render_plan", return_value=b"png")
+    def test_rejected_document_falls_back_to_all_text_targets(self, render):
+        plan = dict(plans()[0], exercises=[{
+            "name": "Synthetic Raise", "proposed": [{"weight": 9, "reps": 12}], "reason": "Shared load.",
+        }])
+        self.api.call.side_effect = [TelegramError(400), TelegramError(400), {"message_id": 12}]
+        self.bot().send_plan(plan, 42)
+        calls = self.api.call.call_args_list
+        self.assertEqual([c.args[0] for c in calls], ["sendPhoto", "sendDocument", "sendMessage"])
+        self.assertIn("9 kg × 12 reps", calls[-1].args[1]["text"])
+
+    @patch("reptrace.telegram.bot.render_plan", return_value=b"png")
+    def test_failed_text_fallback_remains_retryable(self, render):
+        plan = dict(plans()[0], exercises=[])
+        self.api.call.side_effect = [TelegramError("network"), TelegramError("network")]
+        with self.assertRaises(TelegramError):
+            self.bot().send_plan(plan, 42)
+
+    @patch("reptrace.telegram.bot.render_plan", return_value=b"png")
     def test_private_callback_works_and_is_acknowledged(self, render):
         value = {
             "update_id": 2,
@@ -135,9 +215,11 @@ class BotTests(unittest.TestCase):
         with patch(
             "urllib.request.urlopen", side_effect=OSError("https://bot/secret-token")
         ):
-            with self.assertRaises(TelegramError) as caught:
+            with self.assertLogs(level="WARNING") as logs, self.assertRaises(TelegramError) as caught:
                 Telegram("secret-token").call("getMe", {})
             self.assertNotIn("secret-token", str(caught.exception))
+            self.assertNotIn("secret-token", " ".join(logs.output))
+            self.assertIn("getMe transport failed (OSError)", " ".join(logs.output))
 
 
 if __name__ == "__main__":

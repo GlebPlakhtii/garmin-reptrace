@@ -250,7 +250,12 @@
 .progress-panel .segmented button[data-metric]:before{content:"";width:6px;height:6px;border-radius:50%;background:var(--control-color);flex-shrink:0}
 .progress-panel .segmented button[data-metric].active{background:color-mix(in srgb,var(--control-color) 12%,var(--white))}
 .chart-tooltip{border:1px solid var(--line);box-shadow:0 8px 24px #00000040;border-radius:10px}
-.week-column.current .week-bar:not(.zero){background:linear-gradient(to top,var(--syntax-chart),var(--syntax-nav));box-shadow:0 0 16px color-mix(in srgb,var(--syntax-chart) 18%,transparent)}
+.weekly-panel .week-bar:not(.zero) {
+  background: linear-gradient(to top,var(--syntax-nav) var(--strength-share),var(--syntax-number) var(--strength-share));
+}
+.weekly-panel .week-bar.zero { background: var(--line); }
+.weekly-footer .activity-legend { margin-top: 0; }
+.weekly-footer { flex-wrap: wrap; }
 .week-column.current>small{color:var(--syntax-nav);font-weight:650}
 .week-column.current .week-bar>span{color:var(--syntax-nav)}
 .goal-track{overflow:hidden}
@@ -369,9 +374,22 @@
 
 .overview-section{margin-bottom:24px}.overview-section>.panel{margin-bottom:0}
 .layout-controls{margin-bottom:24px;overflow:hidden}.layout-controls summary{padding:17px 22px;cursor:pointer;font-weight:650;color:var(--ink)}.layout-controls summary span{font-size:12px;font-weight:400;color:var(--muted);margin-left:12px}.layout-options{display:grid;grid-template-columns:1fr 1fr;gap:0 24px;padding:0 22px}.layout-option{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--line);padding:12px 0}.layout-option label{display:flex;align-items:center;gap:9px;font-size:13px;cursor:pointer}.layout-option input{width:17px;height:17px;accent-color:var(--syntax-nav)}.layout-option>div{display:flex;gap:5px}.layout-option .button{padding:7px 11px;min-width:34px}.layout-option button:disabled{opacity:.3}.layout-footer{display:flex;align-items:center;justify-content:space-between;padding:16px 22px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
-.calendar-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.calendar-controls strong{min-width:135px;text-align:center;font-size:14px}.calendar-controls .button{padding:8px 12px;min-height:38px}.calendar-body{display:grid;grid-template-columns:minmax(0,2fr) minmax(220px,1fr);gap:24px;padding:0 24px 24px}.calendar-weekdays,.calendar-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}.calendar-weekdays{padding:0 0 10px;text-align:center;color:var(--muted);font-size:11px}.calendar-day{min-height:72px;padding:9px 5px;text-align:center;border:1px solid var(--line);border-radius:10px;background:var(--paper);color:var(--muted)}.calendar-day>span{font-size:14px;font-variant-numeric:tabular-nums}.calendar-day>small{display:block;min-height:12px;font-size:9px}.calendar-day.has-workout{background:color-mix(in srgb,var(--syntax-chart) 10%,var(--white));color:var(--ink)}.calendar-day.is-today>span{text-decoration:underline;text-underline-offset:4px;color:var(--syntax-nav);font-weight:750}.calendar-day[aria-pressed="true"]{border-color:var(--syntax-nav);box-shadow:inset 0 0 0 1px var(--syntax-nav)}.calendar-dots{display:flex;justify-content:center;gap:3px;align-items:center;min-height:16px}.calendar-dots i,.calendar-legend i{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--syntax-nav)}.calendar-dots .manual,.calendar-legend .manual{background:var(--syntax-manual);border-radius:1px}.calendar-legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:14px;font-size:11px;color:var(--muted)}.calendar-legend i{margin-right:5px}.calendar-detail{border-left:1px solid var(--line);padding:12px 0 0 24px}.calendar-detail h3{font-size:17px;margin-bottom:14px}.calendar-detail>p{color:var(--muted);font-size:13px;line-height:1.8}.calendar-session{display:block;text-align:left;width:100%;border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:10px;background:var(--paper)}.calendar-session>span{display:flex;gap:9px;align-items:center}.calendar-session strong{font-size:13px;overflow-wrap:anywhere}.calendar-session .icon{color:var(--syntax-nav)}.calendar-session small{display:block;font-size:11px;color:var(--muted);margin-top:10px}
+.calendar-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.calendar-controls strong{min-width:135px;text-align:center;font-size:14px}.calendar-controls .button{padding:8px 12px;min-height:38px}.calendar-body{display:grid;grid-template-columns:minmax(0,2fr) minmax(220px,1fr);gap:24px;padding:0 24px 24px}.calendar-weekdays,.calendar-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}.calendar-weekdays{padding:0 0 10px;text-align:center;color:var(--muted);font-size:11px}.calendar-day{min-height:72px;padding:9px 5px;text-align:center;border:1px solid var(--line);border-radius:10px;background:var(--paper);color:var(--muted)}.calendar-day>span{font-size:14px;font-variant-numeric:tabular-nums}.calendar-day>small{display:block;min-height:12px;font-size:9px}.calendar-day.is-today>span{text-decoration:underline;text-underline-offset:4px;color:var(--syntax-nav);font-weight:750}.calendar-day[aria-pressed="true"]{border-color:var(--syntax-nav);box-shadow:inset 0 0 0 1px var(--syntax-nav)}.calendar-dots{display:flex;justify-content:center;gap:3px;align-items:center;min-height:16px}.calendar-dots i,.activity-legend i{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--syntax-nav)}.activity-legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:14px;font-size:11px;color:var(--muted)}.activity-legend i{margin-right:5px}.calendar-detail{border-left:1px solid var(--line);padding:12px 0 0 24px}.calendar-detail h3{font-size:17px;margin-bottom:14px}.calendar-detail>p{color:var(--muted);font-size:13px;line-height:1.8}.calendar-session{display:block;text-align:left;width:100%;border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:10px;background:var(--paper)}.calendar-session>span{display:flex;gap:9px;align-items:center}.calendar-session strong{font-size:13px;overflow-wrap:anywhere}.calendar-session .icon{color:var(--syntax-nav)}.calendar-session small{display:block;font-size:11px;color:var(--muted);margin-top:10px}
+.workout-calendar {
+  --strength-tint: color-mix(in srgb, var(--syntax-nav) 17%, var(--white));
+  --run-tint: color-mix(in srgb, var(--syntax-number) 20%, var(--white));
+}
+.calendar-day.has-strength { background: var(--strength-tint); color: var(--ink); }
+.calendar-day.has-run { background: var(--run-tint); color: var(--ink); }
+.calendar-day.has-strength.has-run { background: linear-gradient(115deg,var(--strength-tint) 50%,var(--run-tint) 50%); }
+.calendar-dots .strength, .activity-legend .strength { border-radius: 1px; }
+.calendar-dots .running, .activity-legend .running { background: var(--syntax-number); }
+.calendar-run .icon { color: var(--syntax-number); }
+.overview-stats .stat { min-width: 0; }
+.overview-stats .stat:nth-child(n+5) { border-top: 1px solid var(--line); }
+.overview-stats .stat:nth-child(4n) { border-right: 0; }
 @media(max-width:780px){.calendar-body{grid-template-columns:1fr}.calendar-detail{border-left:0;border-top:1px solid var(--line);padding:20px 0 0}.layout-options{grid-template-columns:1fr}.calendar-controls{width:100%}}
-@media(max-width:530px){.calendar-body{padding:0 14px 18px}.calendar-days,.calendar-weekdays{gap:3px}.calendar-day{min-height:55px;padding:7px 2px;border-radius:7px}.calendar-day>small{display:none}.calendar-controls{gap:6px}.calendar-controls .button{padding:8px}.calendar-controls strong{min-width:116px}.layout-controls summary span{display:block;margin:6px 0 0}.layout-footer{gap:12px;flex-wrap:wrap}}
+@media(max-width:530px){.calendar-body{padding:0 14px 18px}.calendar-days,.calendar-weekdays{gap:3px}.calendar-day{min-height:55px;padding:7px 2px;border-radius:7px}.calendar-day>small{font-size:9px;line-height:1.2}.calendar-controls{gap:6px}.calendar-controls .button{padding:8px}.calendar-controls strong{min-width:116px}.layout-controls summary span{display:block;margin:6px 0 0}.layout-footer{gap:12px;flex-wrap:wrap}}
 
 /* Daylight uses darker data inks, not the pastel foregrounds of dark themes. */
 :root[data-theme="daylight"]{color-scheme:light;--metric-sleepHours:#7145ad;--metric-hrv:#08796c;--metric-restingHR:#b53656;--metric-bodyBattery:#8544a2;--metric-bodyWeightKg:#a25912;--metric-sleepScore:#245bb5;--metric-weight:#08796c;--metric-estimatedMax:#7145ad;--metric-volume:#a25912;--metric-calories:#a25912;--metric-protein_g:#245bb5;--metric-carbs_g:#08796c;--metric-fat_g:#a33789;--metric-readiness:#245bb5;--metric-status:#08796c;--metric-ratio:#a25912;--metric-reps:#896008;--metric-core:#4f721b;--stage-deep:#7145ad;--stage-light:#849bcc;--stage-awake:#a25912;--series-0:#245bb5;--series-1:#08796c;--series-2:#7145ad;--series-3:#896008;--series-4:#b53656;--series-5:#4f721b;--series-6:#a25912;--series-7:#a33789;--series-8:#16718a;--series-9:#8544a2;--series-10:#80623f;--series-11:#526177;--series-lightness:35%}
@@ -708,3 +726,57 @@ summary:focus-visible,textarea:focus-visible{outline:3px solid var(--syntax-nav,
 /* Keep the fixed body edge visible above expanding, body-clipped muscles. */
 .body-map-svg .body-containment-outline{fill:none;stroke:#a6e7fc;stroke-width:1.1;stroke-opacity:.85;pointer-events:none;filter:none}
 [data-theme="daylight"] .body-map-svg .body-containment-outline{stroke:#477184}
+
+/* Running history uses Garmin activity summaries independently of strength sets. */
+.running-empty{padding:40px;margin-top:24px}.running-empty p{color:var(--muted);margin:12px 0 24px}
+.running-weekly{margin:24px 0}.running-bars{display:flex;gap:16px;padding:24px 30px;overflow-x:auto;align-items:end}
+.running-week{flex:1;min-width:58px;text-align:center;display:flex;flex-direction:column;gap:8px;font-size:12px}
+.running-week strong{font-size:16px;font-variant-numeric:tabular-nums}.running-week small{color:var(--muted)}
+.running-bar-space{height:120px;display:flex;align-items:end;justify-content:center}.running-bar-space i{display:block;width:min(100%,48px);background:var(--green);border-radius:5px 5px 0 0}
+.running-table td{white-space:nowrap}.running-table td:first-child{min-width:200px;white-space:normal}.running-table td:first-child small{display:block;color:var(--muted);margin-top:6px}.running-table .icon{width:14px;height:14px}
+.running-note{padding:16px 24px;color:var(--muted);font-size:12px;line-height:1.6}
+@media(max-width:530px){.running-bars{padding:20px 16px}}
+
+.workout-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.workout-toolbar:has(.workout-actions) { flex-wrap:wrap; gap:12px; }
+.workout-toolbar .workout-actions .button { min-height:44px; }
+.date-disclosure { margin-bottom:18px; border:1px solid var(--line); border-radius:12px; background:var(--white); }
+.date-disclosure > summary { cursor:pointer; padding:12px 16px; color:var(--ink); font-size:14px; }
+.date-disclosure > summary span { margin-inline-start:12px; color:var(--muted); font-size:12px; }
+.date-disclosure .date-range-bar { margin:0; border:0; border-top:1px solid var(--line); border-radius:0 0 12px 12px; }
+.export-options { position:relative; }
+.header-actions .export-options > summary { width:auto; min-width:94px; cursor:pointer; }
+.export-list { position:absolute; right:0; top:calc(100% + 5px); z-index:8; width:max-content; padding:5px; border:1px solid var(--line); border-radius:10px; background:var(--white); box-shadow:0 6px 16px #0003; }
+.header-actions .export-list .button { display:flex; justify-content:flex-start; width:100%; min-height:44px; color:var(--ink); background:var(--white); border:0; box-shadow:none; }
+.header-actions .export-list .button:is(:hover,:focus-visible) { background:var(--paper); }
+.header-actions .export-list .button span { display:inline; }
+@media(max-width:700px) {
+  .date-disclosure > summary { min-height:44px; }
+  .workout-toolbar .search-box { flex:1 1 100%; }
+  .run-workspace-actions button, .run-hero-actions button { min-height:44px; }
+}
+.more-workouts { grid-column:1/-1; justify-self:center; min-height:44px; }
+
+.draft-number .previous-set{display:block;font-size:.72rem;font-weight:500;color:var(--muted);line-height:1.4;white-space:normal}
+
+.exercise-row.selected .exercise-row-name small{color:var(--ink)}
+.table-scroll:focus-visible{outline:2px solid var(--green-strong);outline-offset:-2px}
+
+[data-theme="daylight"] .date-tile strong{color:var(--ink)}
+[data-theme="daylight"] .load-more{background:var(--syntax-elevated);color:var(--syntax-nav)}
+
+.draft-help summary{cursor:pointer}
+.draft-help p{margin:.4rem 0 0}
+@media(max-width:600px){
+  #workout-form .editor-fields{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:end;gap:12px;padding-bottom:14px}
+  #workout-form .editor-fields label:first-child{grid-column:1/-1}
+  #workout-form .editor-fields input{min-width:0;min-height:44px;font-size:16px}
+  #workout-form .draft-help{padding-bottom:4px}
+  .draft-table td:first-child,.draft-table td:nth-child(n){width:auto;min-width:0}
+  #workout-form .draft-table td:first-child{position:static;max-width:none;box-shadow:none;background:transparent}
+  .draft-table .draft-number>span{white-space:nowrap}
+  .draft-table .draft-number{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+}
+[data-theme="daylight"] .load-more>span{color:var(--syntax-nav)}
+[data-theme-style="editor"] .exercise-row:not(.selected) .exercise-row-name small{color:var(--syntax-muted)}
+[data-theme="daylight"] :is(.workout-card-bottom>span:not(.source-badge),.chart-footnote,.inline-input,.record-banner p){color:var(--syntax-muted)}

@@ -14,8 +14,9 @@ import os
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from reptrace.training.catalog import recorded_exercise_mappings
+from reptrace.training.metrics import estimated_max_kg
 from reptrace.training.strength import (
-    BODYWEIGHT_CATEGORIES,
     EXERCISE_NAME_ALIASES,
     number,
     utc_time,
@@ -266,14 +267,9 @@ def build_session(records, workout, catalog, database, source_hash, local_zone):
                     fields["reps"] = int(reps)
                 if weight is not None and reps is not None:
                     fields["volumeKg"] = weight * reps
-                    if (
-                        weight > 0
-                        and 1 <= reps <= 10
-                        and category not in BODYWEIGHT_CATEGORIES
-                    ):
-                        fields["estimated1RMKg"] = (
-                            weight if reps == 1 else weight * (1 + reps / 30)
-                        )
+                    estimate = estimated_max_kg(weight, reps, exercise, category)
+                    if estimate is not None:
+                        fields["estimated1RMKg"] = estimate
             # A shared date placeholder avoids fabricating set times or duration.
             points.append(
                 {
@@ -317,21 +313,31 @@ def build_session(records, workout, catalog, database, source_hash, local_zone):
             "sourceSession": session,
             "source": "Manual CSV",
             "mergedWithGarmin": bool(workout),
+            "importPending": False,
+            "reviewHash": hashlib.sha256(json.dumps(
+                [(r["sourceRow"], r["weights"], r["reps"], r.get("skipReason", ""), r.get("correction", "")) for r in records],
+                ensure_ascii=False, separators=(",", ":"),
+            ).encode()).hexdigest(),
         },
     }
     return points + summaries + audit + [marker]
 
 
-def already_imported(markers, source_hash, session):
+def already_imported(markers, source_hash, session, review_hash=None):
     if not markers:
         return False
-    if any(p.get("sourceHash") != source_hash for p in markers):
+    if any(
+        p.get("sourceHash") != source_hash
+        or p.get("sourceSession", session) != session
+        or (review_hash and p.get("reviewHash", review_hash) != review_hash)
+        for p in markers
+    ):
         raise ValueError(
             "Reviewed data or a different CSV version already exists for "
             + session
             + "; reconcile it explicitly"
         )
-    return True
+    return not any(p.get("importPending") for p in markers)
 
 
 from reptrace.storage.coordination import strength_writer, protected_activity
@@ -380,11 +386,9 @@ def main():
     for r in records:
         sessions[r["session"]].append(r)
     # Fetch existing names/codes before touching any data.
-    catalog = {}
-    for row in query(
+    catalog = recorded_exercise_mappings(query(
         'SELECT "Exercise", "ExerciseCategory", LAST("exerciseCode") FROM "StrengthSet" GROUP BY "Exercise", "ExerciseCategory"'
-    ):
-        catalog[row["Exercise"]] = (row["ExerciseCategory"], row["last"])
+    ))
     workouts = defaultdict(list)
     for row in query(
         'SELECT "Activity_ID", "activityName", "Device", "User_ID" FROM "ActivitySummary" WHERE "activityType" = \'strength_training\' AND "Activity_ID" > 0'
@@ -396,6 +400,14 @@ def main():
         )
         workouts[day].append(row)
     plan = []
+    destinations = set()
+    imported = query('SELECT * FROM "StrengthManualSession"')
+    by_destination = defaultdict(list)
+    by_source = defaultdict(set)
+    for marker in imported:
+        destination = str(marker["ActivityID"])
+        by_destination[destination].append(marker)
+        by_source[(marker.get("sourceHash"), marker.get("sourceSession"))].add(destination)
     for session, rows in sessions.items():
         matches = workouts.get(rows[0]["date"], [])
         if len(matches) > 1:
@@ -411,13 +423,19 @@ def main():
             args.timezone,
         )
         marker = points[-1]
-        existing = query(
-            'SELECT * FROM "StrengthManualSession" WHERE "ActivityID" = '
-            + quote(marker["tags"]["ActivityID"])
-        )
-        if already_imported(existing, source_hash, session):
+        destination = marker["tags"]["ActivityID"]
+        if destination in destinations:
+            raise ValueError("Multiple source sessions match one Garmin workout; resolve the date match before importing")
+        destinations.add(destination)
+        previous = by_source[(source_hash, session)]
+        if previous and previous != {destination}:
+            raise ValueError("Session already imported under a different workout identity; reconcile it explicitly")
+        existing = by_destination[destination]
+        if already_imported(existing, source_hash, session, marker["fields"]["reviewHash"]):
             print(f"Session {session}: already imported; skipping", flush=True)
             continue
+        if matches and not marker["fields"]["importedSets"]:
+            raise ValueError("No reviewed sets remain for the matched workout; import would erase its sets")
         archived = []
         for measurement in ["StrengthSet", "StrengthExercise"]:
             for row in query(
@@ -425,6 +443,8 @@ def main():
                 + quote(marker["tags"]["ActivityID"])
             ):
                 if row.get("source") == "Manual CSV":
+                    if measurement == "StrengthSet" and (row.get("sourceHash") != source_hash or row.get("sourceSession") != session):
+                        raise ValueError("Partial import belongs to a different source; reconcile it explicitly")
                     continue  # Never overwrite the originals with a partial retry.
                 tag_keys = [
                     "Device",
@@ -474,12 +494,17 @@ def main():
     if all_archived and not client.write_points(all_archived):
         raise RuntimeError("Could not archive Garmin originals; import aborted")
     for points, archive in plan:
-        identity = points[-1]["tags"]["ActivityID"]
+        marker = points[-1]
+        identity = marker["tags"]["ActivityID"]
+        # Keep the collector from replacing an interrupted import after lock release.
+        pending = dict(marker, fields={**marker["fields"], "importPending": True})
+        if not client.write_points([pending]):
+            raise RuntimeError("Could not mark the session for import")
         for measurement in ["StrengthSet", "StrengthExercise"]:
             client.query(
                 f'DELETE FROM "{measurement}" WHERE "ActivityID" = ' + quote(identity)
             )
-        # Registry is written last, so an interrupted session is retried.
+        # Mark completion only after the reviewed sets and source rows are accepted.
         if not client.write_points(points[:-1]) or not client.write_points(
             [points[-1]]
         ):
